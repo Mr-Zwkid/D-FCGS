@@ -1,4 +1,4 @@
-name: FCGS_env
+name: fcgs
 channels:
   - pytorch
   - pyg

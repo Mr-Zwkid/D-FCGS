@@ -40,7 +40,6 @@ class GaussianModel(nn.Module):
 
         self.rotation_activation = torch.nn.functional.normalize
 
-
     def __init__(self, sh_degree : int):
         super().__init__()
         self.active_sh_degree = 0

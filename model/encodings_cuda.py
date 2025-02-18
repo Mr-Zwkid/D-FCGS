@@ -207,6 +207,7 @@ def encoder_gaussian_mixed(x, mean_list, scale_list, prob_list, Q, file_name='tm
     if not isinstance(Q, torch.Tensor):
         Q = torch.tensor([Q], dtype=x.dtype, device=x.device).repeat(x.shape[0])
     assert x.shape == mean_list[0].shape == scale_list[0].shape == prob_list[0].shape == Q.shape, f'{x.shape}, {mean_list[0].shape}, {scale_list[0].shape}, {prob_list[0].shape}, {Q.shape}'
+    x[torch.isinf(x)] = 200
     x_int_round = torch.round(x / Q)  # [100]
     max_value = x_int_round.max()
     min_value = x_int_round.min()
@@ -316,7 +317,7 @@ def decoder_gaussian_mixed(mean_list, scale_list, prob_list, Q, file_name='tmp.b
 
 def encoder_gaussian_chunk(x, mean, scale, Q, file_name='tmp.b', chunk_size=1000_0000):
     assert file_name.endswith('.b')
-    assert len(x.shape) == 1
+    # assert len(x.shape) == 1
     x_view = x.view(-1)
     mean_view = mean.view(-1)
     scale_view = scale.view(-1)
@@ -340,7 +341,7 @@ def encoder_gaussian_chunk(x, mean, scale, Q, file_name='tmp.b', chunk_size=1000
 def encoder_gaussian(x, mean, scale, Q, file_name='tmp.b'):
     # should be single dimension
     assert file_name.endswith('.b')
-    assert len(x.shape) == 1
+    # assert len(x.shape) == 1
     if not isinstance(Q, torch.Tensor):
         Q = torch.tensor([Q], dtype=mean.dtype, device=mean.device).repeat(mean.shape[0])
     x_int_round = torch.round(x / Q)  # [100]

@@ -160,7 +160,6 @@ class FCGS(nn.Module):
         self.freq_enc = FreqEncoder(3, 4)
         assert len(resolutions_list) == len(resolutions_list_3D)
         n_levels = len(resolutions_list)
-        #
 
         self.Encoder_mask = nn.Sequential(
             nn.Linear(fea_dim, hidden),
@@ -170,6 +169,7 @@ class FCGS(nn.Module):
             nn.Linear(hidden, 1),
             nn.Sigmoid(),
         )
+
         self.Encoder_fea = nn.Sequential(
             nn.Linear(fea_dim, hidden),
             nn.LeakyReLU(inplace=True),
@@ -189,6 +189,7 @@ class FCGS(nn.Module):
             nn.LeakyReLU(inplace=True),
             nn.Linear(hidden, hidden),
         )
+
         self.head_f_dc = nn.Sequential(
             nn.Linear(hidden, hidden),
             nn.LeakyReLU(inplace=True),
@@ -196,6 +197,7 @@ class FCGS(nn.Module):
         )
         nn.init.constant_(self.head_f_dc[-1].weight, 0)
         nn.init.constant_(self.head_f_dc[-1].bias, 0)
+
         self.head_f_rst = nn.Sequential(
             nn.Linear(hidden, hidden),
             nn.LeakyReLU(inplace=True),
@@ -323,6 +325,7 @@ class FCGS(nn.Module):
         return resolutions_list, offsets_list
 
     def clamp(self, x, Q):
+        x[torch.isnan(x)] = 0 
         x_mean = x.mean().detach()
         x_min = x_mean - 15_000 * Q
         x_max = x_mean + 15_000 * Q
@@ -337,6 +340,7 @@ class FCGS(nn.Module):
         x_q = self.clamp(x_q, Q)
         return x_q
 
+# 这个函数没有被调用过，应该是和下面的compress一样的
     def compress_only(self, g_xyz, g_fea, means=None, stds=None, testing=True, root_path='./', chunk_size_list=(), feqonly=False, random_seed=1):
         c_size_fea, c_size_feq, c_size_geo = chunk_size_list
         g_xyz, g_fea = sorted_orig_voxels(g_xyz, g_fea)  # to morton order
@@ -354,8 +358,11 @@ class FCGS(nn.Module):
         norm_xyz, norm_xyz_clamp, mask_xyz = normalize_xyz(g_xyz, K=self.norm_radius, means=means, stds=stds)   # [N_g, 3]
         freq_enc_xyz = self.freq_enc(norm_xyz_clamp)  # [N_g, freq_output]
         N_g = g_xyz.shape[0]  # N_g
+
+        # learnable mask in Compact 3DGS(CVPR24)
         mask_sig = self.Encoder_mask(g_fea)  # [N_g, 1]
         mask = ((mask_sig > 0.01).float() - mask_sig).detach() + mask_sig  # [N_g, 1]
+
         mask_fea = mask.detach()[:, 0].to(torch.bool)  # [N_g]
         mask_feq = torch.logical_not(mask_fea)  # [N_g]
 
@@ -440,7 +447,6 @@ class FCGS(nn.Module):
         geo_q = torch.cat([op_q, sc_q, ro_q], dim=-1)  # [N_g, 8]
         Q_geo = torch.cat([Q_op, Q_sc, Q_ro], dim=-1)  # [N_g, 8]
 
-        #-----#
 
         if mask_fea.sum() > 0:
             print('Start compressing fea...')
@@ -501,7 +507,6 @@ class FCGS(nn.Module):
         if mask_feq.sum() > 0:
             print('Start compressing feq...')
 
-            # ---------
             fe_q_hyp = self.Encoder_feq_hyp(fe_q)  # [N_feq, 24]
             fe_q_hyp_q = self.quantize(fe_q_hyp, self.Q, testing)  # [N_feq, 24]
 
@@ -614,19 +619,24 @@ class FCGS(nn.Module):
     def compress(self, g_xyz, g_fea, means=None, stds=None, testing=True, root_path='./', chunk_size_list=(), determ_codec=False):
         c_size_fea, c_size_feq, c_size_geo = chunk_size_list
         g_xyz, g_fea = sorted_orig_voxels(g_xyz, g_fea)  # to morton order
-        # doing compression
+        
+        # compress position
         print('Start compressing xyz...')
         bits_xyz = compress_gaussian_params(
             gaussian_params=g_xyz,
             bin_path=os.path.join(root_path, 'xyz_gpcc.bin')
         )[-1]['file_size']['total'] * 8 * 1024 * 1024
+
+        # get shuffled xyz and feature of Gaussians
         torch.manual_seed(1)
         shuffled_indices = torch.randperm(g_xyz.size(0))
         g_xyz = g_xyz[shuffled_indices]  # [N_g, 3]
         g_fea = g_fea[shuffled_indices]  # [N_g, 56]
         fe, op, sc, ro = torch.split(g_fea, split_size_or_sections=[3 + 45, 1, 3, 4], dim=-1)  # [N_g, x] for each
+
         norm_xyz, norm_xyz_clamp, mask_xyz = normalize_xyz(g_xyz, K=self.norm_radius, means=means, stds=stds)   # [N_g, 3]
-        freq_enc_xyz = self.freq_enc(norm_xyz_clamp)  # [N_g, freq_output]
+        freq_enc_xyz = self.freq_enc(norm_xyz_clamp)  # [N_g, freq_output], use sin for frequent encoding (NeRF)
+
         N_g = g_xyz.shape[0]  # N_g
         mask_sig = self.Encoder_mask(g_fea)  # [N_g, 1]
         mask = ((mask_sig > 0.01).float() - mask_sig).detach() + mask_sig  # [N_g, 1]
@@ -639,7 +649,6 @@ class FCGS(nn.Module):
 
         g_fea_enc = self.Encoder_fea(g_fea[mask_fea])  # [N_fea, 256]
         g_fea_enc_q = self.quantize(g_fea_enc, self.Q, testing)  # [N_fea, 256]
-
         g_fea_out = self.Decoder_fea(g_fea_enc_q)  # [N_fea, 256]
         fe_dec = torch.cat([self.head_f_dc(g_fea_out), self.head_f_rst(g_fea_out)], dim=-1)  # [N_fea, 48]
 
@@ -686,10 +695,11 @@ class FCGS(nn.Module):
         t4 = int(mask_feq[s0:s4].sum().item())
         tn = [t0, t1, t2, t3, t4]
 
-        #-----#
         g_fea_enc_q_hyp = self.Encoder_fea_hyp(g_fea_enc_q)  # [N_fea, 64]
         g_fea_enc_q_hyp_q = self.quantize(g_fea_enc_q_hyp, self.Q, testing)  # [N_fea, 64]
+
         fea_grid_feature = self.latdim_2_griddim_fea(g_fea_enc_q)  # [N_fea, 48]
+        
         # norm_xyz_clamp: [N_g, 3], mask_fea: [N_g], fea_grid_feature: [N_fea, 48], norm_xyz_clamp[s1:s2][mask_fea[s1:s2]]: [k2-k1, 3]
         ctx_s2 = self.feq_spatial_ctx.forward(norm_xyz_clamp[s0:s1][mask_fea[s0:s1]], norm_xyz_clamp[s1:s2][mask_fea[s1:s2]], fea_grid_feature[k0:k1], determ=determ_codec)  # [k2-k1, dim]
         ctx_s3 = self.feq_spatial_ctx.forward(norm_xyz_clamp[s0:s2][mask_fea[s0:s2]], norm_xyz_clamp[s2:s3][mask_fea[s2:s3]], fea_grid_feature[k0:k2], determ=determ_codec)  # [k3-k2, dim]
@@ -1062,3 +1072,6 @@ class FCGS(nn.Module):
 
         g_fea_fused_dec = torch.cat([fe_final, geo_q], dim=-1)
         return g_xyz, g_fea_fused_dec
+
+    def forward(self, g_xyz, g_fea, means=None, stds=None, testing=True):
+        ...

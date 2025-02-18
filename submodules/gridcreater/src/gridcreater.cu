@@ -362,8 +362,6 @@ void grid_creater_backward_cuda(
     }
 }
 
-
-
 void grid_creater_forward(
     const at::Tensor input_norm_xyz,
     const at::Tensor input_feature,
@@ -461,8 +459,6 @@ void grid_creater_backward(
     }));
 
 }
-
-
 
 //------------------
 

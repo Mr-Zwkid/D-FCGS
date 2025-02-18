@@ -7,17 +7,21 @@ from gaussian_renderer import GaussianModel
 import numpy as np
 from argparse import ArgumentParser
 import sys
+import json
 
 
 def train(args):
     # assert False, 'check scene dataloader first!'
     per_step_size = 100_0000
 
+    # load .ply to initialize 3D Gaussians
     with torch.no_grad():
         gaussians = GaussianModel(3)  # dataset.sh_degree = 3
         gaussians.load_ply(path=args.ply_path_from)
-    g_xyz = gaussians._xyz.detach()
-    N_gaussian = g_xyz.shape[0]
+    
+    # acquire attributes of Gaussians
+    g_xyz = gaussians._xyz.detach() # [N, 3]
+    N_gaussian = g_xyz.shape[0] # N
     _features_dc = gaussians._features_dc.detach().view(N_gaussian, -1)  # [N, 1, 3] -> [N, 3]
     _features_rest = gaussians._features_rest.detach().view(N_gaussian, -1)  # [N, 15, 3] -> [N, 45]
     _opacity = gaussians._opacity.detach()  # [N, 1]
@@ -50,15 +54,20 @@ def train(args):
     print(f"{args.ply_path_from} compressed! Save bitstreams to {args.bit_path_to}.")
     orig_size = os.path.getsize(args.ply_path_from)/1024/1024
     print(f"Original size: {orig_size:.4f} MB. Compressed size: {ttl_size:.4f} MB. Compression ratio: {orig_size/ttl_size:.4f} X")
+    with open(os.path.join(args.bit_path_to, str(lmd), 'size.json'), 'w') as f:
+        data = {'Size': ttl_size}
+        json.dump(data, f, indent=True)
 
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="dataset_param")
     parser.add_argument("--lmd", default=1e-4, choices=[1e-4, 2e-4, 4e-4, 8e-4, 16e-4], type=float)
     parser.add_argument("--nr", default=3, type=float)
+    parser.add_argument("--gpu", default=0, type=int)
     parser.add_argument("--determ", default=1, type=float)
     parser.add_argument("--bit_path_to", default="./bitstreams/tmp/", type=str)
     parser.add_argument("--ply_path_from", default="./xxx/point_cloud.ply", type=str)
     args = parser.parse_args(sys.argv[1:])
+    torch.cuda.set_device(args.gpu)
     train(args)
 
