@@ -9,3 +9,4 @@ for lmbda in lmbda_list:
         print('-'*100,'\n', scene)
         os.system(f'python encode_single_scene.py --gpu 0 --lmd {lmbda} --ply_path_from {path_to_ply}/{scene}/point_cloud/iteration_30000/point_cloud.ply --bit_path_to ./outputs/{exp_name}/{scene} --determ 1')
         os.system(f'python decode_single_scene_validate.py --lmd {lmbda} --bit_path_from ./outputs/{exp_name}/{scene} --ply_path_to {path_to_ply}/{scene}/point_cloud/iteration_30000/point_cloud.ply --source_path ../data_static/mipnerf360/{scene}')
+        
