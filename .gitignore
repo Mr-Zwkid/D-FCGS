@@ -1,4 +1,6 @@
 outputs
 ply
 submodules
+res
+3DGStream-Res
 *.pyc

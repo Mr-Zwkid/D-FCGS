@@ -391,7 +391,7 @@ class FCGS_D(nn.Module):
 
         # Motion Compensation
         self.nxt_gaussians = self.MotionCompensation(self.args.dynamicGS_type, dec_motion, self.cur_gaussians, mask_motion)
-        print(f'cur_gaussians: {self.cur_gaussians._xyz}, nxt_gaussians: {self.nxt_gaussians._xyz}')
+        # print(f'cur_gaussians: {self.cur_gaussians._xyz}, nxt_gaussians: {self.nxt_gaussians._xyz}')
 
         loss_render = self.ComputeRenderLoss(self.nxt_gaussians)
         # loss_mask = torch.mean(mask_motion_tmp)
