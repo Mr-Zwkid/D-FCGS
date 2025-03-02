@@ -139,20 +139,21 @@ class Entropy_factorized(nn.Module):
     def __init__(self, channel=32, init_scale=10, filters=(3, 3, 3), likelihood_bound=1e-6,
                  tail_mass=1e-9, optimize_integer_offset=True, Q=1):
         super(Entropy_factorized, self).__init__()
+
         self.filters = tuple(int(t) for t in filters)
         self.init_scale = float(init_scale)
         self.likelihood_bound = float(likelihood_bound)
         self.tail_mass = float(tail_mass)
         self.optimize_integer_offset = bool(optimize_integer_offset)
         self.Q = Q
-        if not 0 < self.tail_mass < 1:
-            raise ValueError(
-                "`tail_mass` must be between 0 and 1")
+        assert 0 <= self.tail_mass <= 1, "tail_mass must be in [0, 1]"
         filters = (1,) + self.filters + (1,)
         scale = self.init_scale ** (1.0 / (len(self.filters) + 1))
+
         self._matrices = nn.ParameterList([])
         self._bias = nn.ParameterList([])
         self._factor = nn.ParameterList([])
+        
         for i in range(len(self.filters) + 1):
             init = np.log(np.expm1(1.0 / scale / filters[i + 1]))
             self.matrix = nn.Parameter(torch.FloatTensor(
@@ -174,18 +175,16 @@ class Entropy_factorized(nn.Module):
     def _logits_cumulative(self, logits, stop_gradient):
         for i in range(len(self.filters) + 1):
             matrix = nnf.softplus(self._matrices[i])
-            if stop_gradient:
-                matrix = matrix.detach()
-            # print('dqnwdnqwdqwdqwf:', matrix.shape, logits.shape)
+            matrix = matrix.detach() if stop_gradient else matrix
             logits = torch.matmul(matrix, logits)
+
             bias = self._bias[i]
-            if stop_gradient:
-                bias = bias.detach()
+            bias = bias.detach() if stop_gradient else bias
             logits += bias
+
             if i < len(self._factor):
                 factor = nnf.tanh(self._factor[i])
-                if stop_gradient:
-                    factor = factor.detach()
+                factor = factor.detach() if stop_gradient else factor
                 logits += factor * nnf.tanh(logits)
         return logits
 
@@ -199,6 +198,7 @@ class Entropy_factorized(nn.Module):
                 Q = Q.view(Q.shape[0], 1, -1)  # [C, 1, N]
         x = x.permute(1, 0).contiguous()  # [C, N]
         x = x.view(x.shape[0], 1, -1)  # [C, 1, N]
+
         lower = self._logits_cumulative(x - 0.5*Q, stop_gradient=False)
         upper = self._logits_cumulative(x + 0.5*Q, stop_gradient=False)
         sign = -torch.sign(torch.add(lower, upper))

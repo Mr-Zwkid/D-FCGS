@@ -359,6 +359,8 @@ class FCGS(nn.Module):
         freq_enc_xyz = self.freq_enc(norm_xyz_clamp)  # [N_g, freq_output]
         N_g = g_xyz.shape[0]  # N_g
 
+        print('N_g:', N_g)
+
         # learnable mask in Compact 3DGS(CVPR24)
         mask_sig = self.Encoder_mask(g_fea)  # [N_g, 1]
         mask = ((mask_sig > 0.01).float() - mask_sig).detach() + mask_sig  # [N_g, 1]
@@ -452,7 +454,9 @@ class FCGS(nn.Module):
             print('Start compressing fea...')
 
             g_fea_enc_q_hyp = self.Encoder_fea_hyp(g_fea_enc_q)  # [N_fea, 64]
+            print('g_fea_enc_q_hyp:', g_fea_enc_q_hyp)
             g_fea_enc_q_hyp_q = self.quantize(g_fea_enc_q_hyp, self.Q, testing)  # [N_fea, 64]
+            print('g_fea_enc_q_hyp_q:', g_fea_enc_q_hyp_q)
             fea_grid_feature = self.latdim_2_griddim_fea(g_fea_enc_q)  # [N_fea, 48]
             # norm_xyz_clamp: [N_g, 3], mask_fea: [N_g], fea_grid_feature: [N_fea, 48], norm_xyz_clamp[s1:s2][mask_fea[s1:s2]]: [k2-k1, 3]
             ctx_s2 = self.feq_spatial_ctx.forward(norm_xyz_clamp[s0:s1][mask_fea[s0:s1]], norm_xyz_clamp[s1:s2][mask_fea[s1:s2]], fea_grid_feature[k0:k1])  # [k2-k1, dim]
@@ -638,6 +642,7 @@ class FCGS(nn.Module):
         freq_enc_xyz = self.freq_enc(norm_xyz_clamp)  # [N_g, freq_output], use sin for frequent encoding (NeRF)
 
         N_g = g_xyz.shape[0]  # N_g
+        print('N_g:', N_g)
         mask_sig = self.Encoder_mask(g_fea)  # [N_g, 1]
         mask = ((mask_sig > 0.01).float() - mask_sig).detach() + mask_sig  # [N_g, 1]
         bits_mask = encoder(
@@ -696,7 +701,9 @@ class FCGS(nn.Module):
         tn = [t0, t1, t2, t3, t4]
 
         g_fea_enc_q_hyp = self.Encoder_fea_hyp(g_fea_enc_q)  # [N_fea, 64]
+        print('g_fea_enc_q_hyp:', g_fea_enc_q_hyp)
         g_fea_enc_q_hyp_q = self.quantize(g_fea_enc_q_hyp, self.Q, testing)  # [N_fea, 64]
+        print('g_fea_enc_q_hyp_q:', g_fea_enc_q_hyp_q)
 
         fea_grid_feature = self.latdim_2_griddim_fea(g_fea_enc_q)  # [N_fea, 48]
         
@@ -764,7 +771,9 @@ class FCGS(nn.Module):
 
         # ---------
         fe_q_hyp = self.Encoder_feq_hyp(fe_q)  # [N_feq, 24]
+        print('fe_q_hyp:', fe_q_hyp)
         fe_q_hyp_q = self.quantize(fe_q_hyp, self.Q, testing)  # [N_feq, 24]
+        print('fe_q_hyp_q:', fe_q_hyp_q)
 
         # norm_xyz_clamp: [N_g, 3], mask_feq: [N_g], fe_final: [N_g, 48], norm_xyz_clamp[s1:s2][mask_feq[s1:s2]]: [t2-t1, 3]
         ctx_s2 = self.feq_spatial_ctx.forward(norm_xyz_clamp[s0:s1], norm_xyz_clamp[s1:s2][mask_feq[s1:s2]], fe_final[s0:s1], determ=determ_codec)  # [t2-t1, dim]
@@ -826,7 +835,9 @@ class FCGS(nn.Module):
 
         # ---------
         geo_q_hyp = self.Encoder_geo_hyp(geo_q)  # [N_g, 16]
+        print('geo_q_hyp:', geo_q_hyp)
         geo_q_hyp_q = self.quantize(geo_q_hyp, self.Q, testing)  # [N_g, 16]
+        print('geo_q_hyp_q:', geo_q_hyp_q)
 
         # norm_xyz_clamp: [N_g, 3], geo_q: [N_g, 8],  norm_xyz_clamp[s1:s2]: [s2-s1, 3]
         ctx_s2 = self.feq_spatial_ctx.forward(norm_xyz_clamp[s0:s1], norm_xyz_clamp[s1:s2], geo_q[s0:s1], determ=determ_codec)  # [s2-s1, dim]
@@ -954,6 +965,8 @@ class FCGS(nn.Module):
             dim=64,
             file_name=os.path.join(root_path, 'g_fea_enc_q_hyp_q.b')
         )  # [N_fea, 64]
+
+        print('g_fea_enc_q_hyp_q:', g_fea_enc_q_hyp_q)
         mean_hp, scale_hp, prob_hp = torch.split(self.Decoder_fea_hyp(g_fea_enc_q_hyp_q), split_size_or_sections=[256, 256, 256], dim=-1)  # [N_fea, 256] for each
 
         g_fea_enc_q = torch.zeros(size=[mask_fea.sum(), 256], dtype=torch.float32, device='cuda')  # [N_fea, 256]
@@ -1000,6 +1013,8 @@ class FCGS(nn.Module):
             dim=24,
             file_name=os.path.join(root_path, 'fe_q_hyp_q.b')
         )  # [N_feq, 24]
+
+        print('fe_q_hyp_q:', fe_q_hyp_q)
         mean_hp, scale_hp, prob_hp = torch.split(self.Decoder_feq_hyp(fe_q_hyp_q), split_size_or_sections=[48, 48, 48], dim=-1)  # [N_feq, 48] for each
         fe_q = torch.zeros(size=[mask_feq.sum(), 48], dtype=torch.float32, device='cuda')  # [N_feq, 48]
         fe_final = torch.zeros(size=[N_g, 48], dtype=torch.float32, device='cuda')  # [N_g, 48]
@@ -1042,6 +1057,7 @@ class FCGS(nn.Module):
             dim=16,
             file_name=os.path.join(root_path, 'geo_q_hyp_q.b')
         )  # [N_g, 8]
+        print('geo_q_hyp_q:', geo_q_hyp_q)
         mean_hp, scale_hp, prob_hp = torch.split(self.Decoder_geo_hyp(geo_q_hyp_q), split_size_or_sections=[8, 8, 8], dim=-1)  # [N_g, 8] for each
         geo_q = torch.zeros(size=[N_g, 8], dtype=torch.float32, device='cuda')  # [N_g, 8]
         for l_sp in range(4):

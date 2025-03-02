@@ -4,10 +4,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import tinycudann as tcnn
 import copy
-from scene import GaussianModel, Scene
+from scene import GaussianModel, Scene, SimpleGaussianModel
 from model.encodings_cuda import STE_multistep, encoder_gaussian, decoder_gaussian, encoder_gaussian_chunk, decoder_gaussian_chunk, \
     encoder_gaussian_mixed, decoder_gaussian_mixed, encoder_gaussian_mixed_chunk, decoder_gaussian_mixed_chunk,\
-    encoder_factorized, decoder_factorized, encoder_factorized_chunk, decoder_factorized_chunk
+    encoder_factorized, decoder_factorized, encoder_factorized_chunk, decoder_factorized_chunk, encoder, decoder
 from model.entropy_models import Entropy_factorized, Entropy_gaussian
 from model.subnet import GDN1D, MaskedConv1d
 from random import randint
@@ -67,36 +67,41 @@ class FCGS_D(nn.Module):
         self.args = args
         self.Q_y = args.Q_y
         self.Q_z = args.Q_z
+        self.scaler_y = args.scaler_y
         self.gof_size = args.gof_size
         self.gaussian_position_dim = 3
         self.gaussian_feature_dim = args.gaussian_feature_dim # 56
         self.motion_dim = args.motion_dim # 7
         self.hidden_dim = args.hidden_dim # 256
-        self.lat_dim = args.lat_dim # 256
+        self.lat_dim = args.lat_dim 
         self.GDN = GDN1D
 
-        self.cur_gaussians = self.read_gaussian_file(args.init_3dgs, sh_degree=3)
+        self.cur_gaussians = None 
         self.nxt_gaussians = None
-        self.scene = Scene(args)
+
+        self.scene = None
+
         self.viewpoint_stack = None
-        # self.init_test_gaussians()
 
         self.MotionEstimator = None
-        self.MotionEstimatorSetup(self.args.dynamicGS_type, self.args.motion_estimator_path)
+
+        if args.init_3dgs:
+            self.refresh_settings(args)
+
 
         self.GaussianFeatureExtractor = nn.Sequential(
             nn.Linear(self.gaussian_feature_dim, self.hidden_dim),
-            self.GDN(self.hidden_dim),
+            # self.GDN(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.hidden_dim),
-            self.GDN(self.hidden_dim),
+            # self.GDN(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.lat_dim)
         )
 
         self.MotionMaskGenerator = nn.Sequential(
-            # nn.Linear(self.gaussian_feature_dim, 1),
-            nn.Linear(self.gaussian_feature_dim, self.hidden_dim),
+            # nn.Linear(self.lat_dim, self.hidden_dim),
+            nn.Linear(self.motion_dim, self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.LeakyReLU(inplace=True),
@@ -106,51 +111,51 @@ class FCGS_D(nn.Module):
 
         self.FeatureExtractor = nn.Sequential(
             nn.Linear(self.gaussian_feature_dim, self.hidden_dim),
-            self.GDN(self.hidden_dim),
+            # self.GDN(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.hidden_dim),
-            self.GDN(self.hidden_dim),
+            # self.GDN(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.lat_dim)
         )
 
         self.MotionEncoder = nn.Sequential(
             nn.Linear(self.motion_dim, self.hidden_dim),
-            self.GDN(self.hidden_dim),
+            # self.GDN(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.hidden_dim),
-            self.GDN(self.hidden_dim),
+            # self.GDN(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.lat_dim),
         )
 
         self.MotionDecoder = nn.Sequential(
             nn.Linear(self.lat_dim, self.hidden_dim),
-            self.GDN(self.hidden_dim),
+            # self.GDN(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.hidden_dim),
-            self.GDN(self.hidden_dim),
+            # self.GDN(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.motion_dim),
         )
 
         self.MotionPriorEncoder = nn.Sequential(
-            nn.Linear(self.motion_dim, self.hidden_dim),
-            # nn.Linear(self.lat_dim, self.hidden_dim),
-            self.GDN(self.hidden_dim),
+            # nn.Linear(self.motion_dim, self.hidden_dim),
+            nn.Linear(self.lat_dim, self.hidden_dim),
+            # self.GDN(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.hidden_dim),
-            self.GDN(self.hidden_dim),
+            # self.GDN(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.lat_dim),
         )
 
         self.MotionPriorDecoder = nn.Sequential(
             nn.Linear(self.lat_dim, self.hidden_dim),
-            self.GDN(self.hidden_dim),
+            # self.GDN(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.hidden_dim),
-            self.GDN(self.hidden_dim),
+            # self.GDN(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.lat_dim),
         )
@@ -169,13 +174,31 @@ class FCGS_D(nn.Module):
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.LeakyReLU(inplace=True),
-            # nn.Linear(self.hidden_dim, 2 * self.lat_dim)
-            nn.Linear(self.hidden_dim, 2 * self.motion_dim)
+            nn.Linear(self.hidden_dim, 2 * self.lat_dim)
+            # nn.Linear(self.hidden_dim, 2 * self.motion_dim)
         )
 
         self.EntropyFactorizedMotion = Entropy_factorized(self.lat_dim, Q=self.Q_z)
 
         self.EntropyGaussianMotion = Entropy_gaussian(Q=self.Q_y)
+
+        self.AdaptiveQuantizationY = nn.Sequential(
+            nn.Linear(self.lat_dim, self.hidden_dim),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(self.hidden_dim, self.lat_dim),
+            nn.Sigmoid()
+        )
+
+        self.AdaptiveQuantizationZ = nn.Sequential(
+            nn.Linear(self.lat_dim, self.hidden_dim),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(self.hidden_dim, self.lat_dim),
+            nn.Sigmoid()
+        )
     
     def state_dict(self, destination=None, prefix='', keep_vars=False):
         # 获取完整 state_dict
@@ -247,19 +270,23 @@ class FCGS_D(nn.Module):
             mask, d_xyz, d_rot = self.MotionEstimator(xyz)
             return torch.cat((d_xyz, d_rot), dim=1)
         
-    def MotionCompensation(self, dynamicGS_type, dec_motion, cur_gaussians, mask_motion=None):
-        # nxt_gaussians = copy.deepcopy(cur_gaussians)
-        nxt_gaussians = copy.deepcopy(cur_gaussians)
+    def MotionCompensation(self, dynamicGS_type, dec_motion, cur_gaussians):
+        nxt_gaussians = SimpleGaussianModel(cur_gaussians)
         if dynamicGS_type == '3dgstream':
-            # dec_motion[~mask_motion] = 0
-            nxt_gaussians._xyz = nn.Parameter(cur_gaussians._xyz.detach() + dec_motion[:, :3])
-            nxt_gaussians._rotation = nn.Parameter(quaternion_multiply(cur_gaussians._rotation.detach(),  dec_motion[:, 3:]))
+            # Ensure that the original _xyz is detached, so only dec_motion contributes gradients
+            nxt_gaussians._xyz = cur_gaussians._xyz.detach() + dec_motion[:, :3]
+            nxt_gaussians._rotation = quaternion_multiply(cur_gaussians._rotation.detach(), dec_motion[:, 3:])
             
         return nxt_gaussians
             
-    def refresh_gaussians(self, cur_gaussian_path, nxt_gaussian_path, sh_degree = 3):
-        self.cur_gaussians = self.nxt_gaussians
+    def refresh_settings(self, args):
 
+        self.cur_gaussians = self.read_gaussian_file(args.init_3dgs, sh_degree=3)
+
+        self.scene = Scene(args) 
+
+        self.MotionEstimatorSetup(args.dynamicGS_type, args.motion_estimator_path)
+        
     def read_gaussian_file(self, file_path, sh_degree = 3):
         with torch.no_grad():
             gaussians = GaussianModel(sh_degree)
@@ -270,60 +297,63 @@ class FCGS_D(nn.Module):
         self.cur_gaussians = self.read_gaussian_file('/SDD_D/zwk/output/cook_spinach-3-ori/init_3dgs.ply')
         self.nxt_gaussians = self.read_gaussian_file('/SDD_D/zwk/output/cook_spinach-3-ori/init_3dgs.ply')
 
-    def compress(self, cur_gaussians_path, motion_estimator_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', dynamicGS_type='3dgstream'):
+    def compress(self, cur_gaussians_path, motion_estimator_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_bit_path = 'mask.b', dynamicGS_type='3dgstream'):
         
         cur_gaussians = self.read_gaussian_file(cur_gaussians_path)
         self.MotionEstimatorSetup(dynamicGS_type, motion_estimator_path)
 
-        # mask for motion
-        cur_xyz, cur_fea, N_gaussian = GaussianParameterPack(cur_gaussians)
-        mask_motion_tmp = self.MotionMaskGenerator(cur_fea) # N, 1
-        mask_motion = ((mask_motion_tmp > 0.01).float() - mask_motion_tmp).detach() + mask_motion_tmp  # [N, 1]
-        mask_motion = mask_motion.to(torch.bool).squeeze()
+        est_motion = self.MotionEstimation(dynamicGS_type, cur_gaussians._xyz) # I-NGP in 3DGStream / MLP in Deformable-GS / Hexplane in 4D-GS
 
-        mask_motion = torch.ones_like(mask_motion)
+        mask_motion_tmp = self.MotionMaskGenerator(est_motion.detach().to(torch.float32)) # [N, 1]
+        mask_motion_ = ((mask_motion_tmp > 0.01).float() - mask_motion_tmp).detach() + mask_motion_tmp  # [N, 1]
+        mask_motion = mask_motion_.to(torch.bool).squeeze()
 
-        extracted_features = self.GaussianFeatureExtractor(cur_fea[mask_motion]) # N, latent_dim
-        est_motion = self.MotionEstimation(dynamicGS_type, cur_gaussians._xyz[mask_motion]) # I-NGP in 3DGStream / MLP in Deformable-GS / Hexplane in 4D-GS
+        est_motion = est_motion[mask_motion] # [N_m, motion_dim]
 
-        # y_motion = self.MotionEncoder(est_motion.to(torch.float32)) # N, latent_dim
-        y_motion = est_motion.to(torch.float32)
-        y_hat_motion = self.quantize(y_motion, Q=self.Q_y, train_flag=False)
+        y_motion = self.MotionEncoder(est_motion.to(torch.float32))
+        # Q_y = self.AdaptiveQuantizationY(y_motion) * 2 * self.Q_y # [N_m, latent_dim]
+        Q_y = self.Q_y
+        y_hat_motion = self.quantize(y_motion, Q=Q_y, train_flag=False)
 
         # ctx_params_motion = self.AutoRegressiveMotion(extracted_features.reshape(-1, 1, self.lat_dim)).view(-1, self.lat_dim) # N, latent_dim
-        z_motion = self.MotionPriorEncoder(y_motion) # N, latent_dim
-        z_hat_motion = self.quantize(z_motion, Q=self.Q_z, train_flag=False)
-        params_motion = self.MotionPriorDecoder(z_hat_motion) # N, latent_dim
+        z_motion = self.MotionPriorEncoder(y_motion) 
+        # Q_z = self.AdaptiveQuantizationZ(z_motion) * 2 * self.Q_z # [N_m, latent_dim]
+        Q_z = self.Q_z
+        z_hat_motion = self.quantize(z_motion, Q=Q_z, train_flag=False)
+        params_motion = self.MotionPriorDecoder(z_hat_motion)
 
         # distribution_motion = self.EntropyParametersMotion(torch.cat((ctx_params_motion, params_motion), dim=1)) # N, 2*latent_dim
         distribution_motion = self.EntropyParametersMotion(params_motion) # N, 2*latent_dim
         mean_motion, std_motion = torch.chunk(distribution_motion, 2, dim=1)
         std_motion = F.softplus(std_motion) + 1e-6
 
-        bits_motion = encoder_gaussian_chunk(y_hat_motion, mean_motion.contiguous(), std_motion, 1e-1, y_hat_bit_path)
+        print('mean_motion: ', mean_motion)
+        print('std_motion: ', std_motion)
+
+        # print('y_hat_motion: ', y_hat_motion[y_hat_motion != 0])    
+        print('y_hat_motion: ', y_hat_motion)
+        print('z_hat_motion: ', z_hat_motion)
+        # print('mask_motion: ', mask_motion)
+
+
+        bits_mask = encoder(mask_motion_, mask_bit_path)
+        bits_motion = encoder_gaussian_chunk(y_hat_motion, mean_motion.contiguous(), std_motion, self.Q_y, y_hat_bit_path)
         bits_prior_motion = encoder_factorized_chunk(z_hat_motion, self.EntropyFactorizedMotion._logits_cumulative, self.Q_z, z_hat_bit_path)
 
         return {
+            'bits_mask': bits_mask / bit_to_MB,
             'bits_motion': bits_motion / bit_to_MB,
             'bits_prior_motion': bits_prior_motion / bit_to_MB,
         }
 
-    def decompress(self, cur_gaussians_path, y_hat_bit_path, z_hat_bit_path, dynamicGS_type='3dgstream'):
+    def decompress(self, cur_gaussians_path, y_hat_bit_path, z_hat_bit_path, mask_bit_path, dynamicGS_type='3dgstream'):
         cur_gaussians = self.read_gaussian_file(cur_gaussians_path)
 
-        # mask for motion
-        cur_xyz, cur_fea, N_gaussian = GaussianParameterPack(cur_gaussians)
-        mask_motion_tmp = self.MotionMaskGenerator(cur_fea)
-        mask_motion = ((mask_motion_tmp > 0.01).float() - mask_motion_tmp).detach() + mask_motion_tmp
-        mask_motion = mask_motion.to(torch.bool).squeeze()
-
-        mask_motion = torch.ones_like(mask_motion)
-
-        extracted_features = self.GaussianFeatureExtractor(cur_fea[mask_motion]) # N, latent_dim
-
+        cur_xyz, cur_fea, N_gaussian = GaussianParameterPack(self.cur_gaussians)
+        
         # ctx_params_motion = self.AutoRegressiveMotion(extracted_features.reshape(-1, 1, self.lat_dim)).view(-1, self.lat_dim)
 
-        z_hat_motion = decoder_factorized_chunk(self.EntropyFactorizedMotion._logits_cumulative, self.Q_z, cur_fea[mask_motion].shape[0], self.lat_dim, z_hat_bit_path)
+        z_hat_motion = decoder_factorized_chunk(self.EntropyFactorizedMotion._logits_cumulative, self.Q_z, N_gaussian, self.lat_dim, z_hat_bit_path)
         params_motion = self.MotionPriorDecoder(z_hat_motion)
 
         distribution_motion = self.EntropyParametersMotion(params_motion)
@@ -331,71 +361,98 @@ class FCGS_D(nn.Module):
         std_motion = F.softplus(std_motion) + 1e-6
 
         y_hat_motion = decoder_gaussian_chunk(mean_motion.contiguous(), std_motion, self.Q_y, y_hat_bit_path)
+        y_hat_motion = y_hat_motion.reshape(-1, self.lat_dim)
 
-        y_hat_motion = y_hat_motion.reshape(-1, self.motion_dim)
-        dec_motion = y_hat_motion
-        # y_hat_motion = y_hat_motion.reshape(-1, self.lat_dim)
-        # dec_motion = torch.zeros(N_gaussian, self.motion_dim, device=cur_xyz.device, dtype=cur_xyz.dtype)
-        # dec_motion[mask_motion] = self.MotionDecoder(y_hat_motion)
-        nxt_gaussians = self.MotionCompensation(dynamicGS_type, dec_motion, cur_gaussians, mask_motion)
-        return nxt_gaussians
-    
-    def forward(self):
-        # mask for motion
-        cur_xyz, cur_fea, N_gaussian = GaussianParameterPack(self.cur_gaussians)
-
-        mask_motion_tmp = self.MotionMaskGenerator(cur_fea) # N, 1
-        mask_motion = ((mask_motion_tmp > 0.01).float() - mask_motion_tmp).detach() + mask_motion_tmp  # [N, 1]
+        mask_motion = decoder(y_hat_motion.shape[0], mask_bit_path)
         mask_motion = mask_motion.to(torch.bool).squeeze()
 
-        mask_motion = torch.ones_like(mask_motion)
+        dec_motion = torch.zeros(N_gaussian, self.motion_dim, device=cur_xyz.device, dtype=cur_xyz.dtype)
+        dec_motion[mask_motion] = self.MotionDecoder(y_hat_motion)
+        nxt_gaussians = self.MotionCompensation(dynamicGS_type, dec_motion, cur_gaussians)
 
-        # with torch.amp.autocast('cuda'):
+        print('dec_motion: ', dec_motion)
+        # print('mask_motion: ', mask_motion)
+        return nxt_gaussians
 
-        # extracted_features = self.GaussianFeatureExtractor(cur_fea[mask_motion]) # N, latent_dim
+    def forward(self):
 
-        est_motion = self.MotionEstimation(self.args.dynamicGS_type, self.cur_gaussians._xyz[mask_motion]) # I-NGP in 3DGStream / MLP in Deformable-GS / Hexplane in 4D-GS
+        cur_xyz, cur_fea, N_gaussian = GaussianParameterPack(self.cur_gaussians)
+
+        # extracted_features = self.GaussianFeatureExtractor(cur_fea) # N, latent_dim
+        # print('extracted_features: ', extracted_features)
+
+        est_motion = self.MotionEstimation(self.args.dynamicGS_type, self.cur_gaussians._xyz) # I-NGP in 3DGStream / MLP in Deformable-GS / Hexplane in 4D-GS
+
+        mask_motion_tmp = self.MotionMaskGenerator(est_motion.detach().to(torch.float32)) # [N, 1]
+        mask_motion = ((mask_motion_tmp > 0.1).float() - mask_motion_tmp).detach() + mask_motion_tmp  # [N, 1]
+        mask_motion = mask_motion.to(torch.bool).squeeze()
+
+        mask_motion = torch.ones_like(mask_motion, dtype=torch.bool).detach()
+
+        est_motion = est_motion[mask_motion] # [N_m, motion_dim]
 
         # NOTE: we use y denotes the latent representation, z denotes the hyperprior, and hat denotes the quantized version
-        # y_motion = self.MotionEncoder(est_motion.to(torch.float32)) # N, latent_dim
-        y_motion = est_motion.to(torch.float32)
+        y_motion = self.MotionEncoder(est_motion.to(torch.float32)) # [N_m, latent_dim]
+        # Q_y = self.AdaptiveQuantizationY(y_motion) * 2 * self.Q_y # [N_m, latent_dim]
+        Q_y = self.Q_y
 
-        y_hat_motion = self.quantize(y_motion, Q=self.Q_y, train_flag=True)
+        y_hat_motion = self.quantize(y_motion, Q=Q_y, train_flag=True) # [N_m, latent_dim]
 
         # TODO 在空间上进行context的计算
         # ctx_params_motion = self.AutoRegressiveMotion(extracted_features.reshape(-1, 1, self.lat_dim)).view(-1, self.lat_dim) # N, latent_dim
 
-        z_motion = self.MotionPriorEncoder(y_motion) # N, latent_dim
-        z_hat_motion = self.quantize(z_motion, Q=self.Q_z, train_flag=True)
-        params_motion = self.MotionPriorDecoder(z_hat_motion) # N, latent_dim
+        z_motion = self.MotionPriorEncoder(y_motion) # [N_m, latent_dim]
+        # Q_z = self.AdaptiveQuantizationZ(z_motion) * 2 * self.Q_z # [N_m, latent_dim]
+        Q_z = self.Q_z
+        z_hat_motion = self.quantize(z_motion, Q=Q_z, train_flag=True)
+        params_motion = self.MotionPriorDecoder(z_hat_motion) # [N_m, latent_dim]
+
+        # print('est_motion: ', est_motion)
+        # print('Q_y: ', Q_y)
+        # print('Q_z: ', Q_z)
+        # print('y_motion: ', y_motion)  
+        # print('z_motion: ', z_motion)
+        # print('y_hat_motion: ', y_hat_motion)
+        # print('z_hat_motion: ', z_hat_motion)
+
 
         # distribution_motion = self.EntropyParametersMotion(torch.cat((ctx_params_motion, params_motion), dim=1)) # N, 2*latent_dim
-        distribution_motion = self.EntropyParametersMotion(params_motion) # N, 2*latent_dim
-        mean_motion, std_motion = torch.chunk(distribution_motion, 2, dim=1)
-        std_motion = F.softplus(std_motion) + 1e-6
+        distribution_motion = self.EntropyParametersMotion(params_motion) # [N_m, 2 * latent_dim]
+        mean_motion, std_motion = torch.chunk(distribution_motion, 2, dim=1) # [N_m, latent_dim]
+        std_motion = F.softplus(std_motion) + 1e-6 # [N_m, latent_dim]
+        mean_motion = mean_motion.contiguous()
+
+        # replace nan 
+        mean_motion[torch.isnan(mean_motion)] = 0
+        std_motion[torch.isnan(std_motion)] = 1
+
+        # print('mean_motion: ', mean_motion)
+        # print('std_motion: ', std_motion)
 
         bits_motion = self.EntropyGaussianMotion(y_hat_motion, mean_motion, std_motion, self.Q_y)
         bits_prior_motion = self.EntropyFactorizedMotion(z_hat_motion)
+        # bits_prior_motion_2 = encoder_factorized_chunk(z_hat_motion.detach(), self.EntropyFactorizedMotion._logits_cumulative, self.Q_z)
+        # print(f'bits_prior_motion: {bits_prior_motion.mean()}, bits_prior_motion_2: {bits_prior_motion_2/bit_to_MB}')
 
         # Motion Decoding
-        # dec_motion = self.MotionDecoder(y_hat_motion)
-        dec_motion = y_hat_motion
+        dec_motion = self.MotionDecoder(y_hat_motion)
 
-        if dec_motion.shape[0] != mask_motion.shape[0]:
-            diff = mask_motion.shape[0] - dec_motion.shape[0]
+        # error handling for different length of dec_motion and cur_gaussians._xyz
+        if dec_motion.shape[0] != self.cur_gaussians._xyz.shape[0]:
+            diff = self.cur_gaussians._xyz.shape[0] - dec_motion.shape[0]
             if diff > 0:
                 pad = torch.zeros(diff, dec_motion.shape[1], device=dec_motion.device, dtype=dec_motion.dtype)
                 dec_motion = torch.cat([dec_motion, pad], dim=0)
             else:
-                dec_motion = dec_motion[:mask_motion.shape[0], :]
+                dec_motion = dec_motion[:self.cur_gaussians._xyz.shape[0], :]
 
         # Motion Compensation
-        self.nxt_gaussians = self.MotionCompensation(self.args.dynamicGS_type, dec_motion, self.cur_gaussians, mask_motion)
+        self.nxt_gaussians = self.MotionCompensation(self.args.dynamicGS_type, dec_motion, self.cur_gaussians)
         # print(f'cur_gaussians: {self.cur_gaussians._xyz}, nxt_gaussians: {self.nxt_gaussians._xyz}')
 
         loss_render = self.ComputeRenderLoss(self.nxt_gaussians)
         # loss_mask = torch.mean(mask_motion_tmp)
-        loss_mask = torch.tensor(0.0, device=mask_motion.device)
+        loss_mask = torch.tensor(0.0, device=dec_motion.device)
         total_size = bits_motion.mean() + bits_prior_motion.mean()
         return loss_render, total_size, loss_mask
         

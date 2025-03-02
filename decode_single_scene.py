@@ -58,6 +58,9 @@ if __name__ == "__main__":
     parser.add_argument("--determ", default=1, type=float)
     parser.add_argument("--bit_path_from", default="./bitstreams/tmp/", type=str)
     parser.add_argument("--ply_path_to", default="./bitstreams/tmp/point_cloud.ply", type=str)
+    parser.add_argument("--gpu", default=0, type=int)
+
     args = parser.parse_args(sys.argv[1:])
+    torch.cuda.set_device(args.gpu)
     train(args)
 

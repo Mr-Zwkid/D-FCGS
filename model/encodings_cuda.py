@@ -80,7 +80,7 @@ def encoder_factorized(x, lower_func, Q:float = 1, file_name='tmp.b'):
     max_value = x_int_round.max()
     min_value = x_int_round.min()
     samples = torch.tensor(range(int(min_value.item()), int(max_value.item()) + 1)).to(
-        torch.float).to(x.device)  # from min_value to max_value+1. shape = [max_value+1 - min_value]
+        torch.float).to(x.device)  # from min_value to max_value. shape = [max_value+1 - min_value]
     samples = samples.unsqueeze(0).unsqueeze(0).repeat(x.shape[-1], 1, 1)  # [256, 1, max_value+1 - min_value]
     # lower_func: [C, 1, N]
     lower = lower_func((samples - 0.5) * Q, stop_gradient=False)  # [256, 1, max_value+1 - min_value]
@@ -323,16 +323,20 @@ def encoder_gaussian_chunk(x, mean, scale, Q, file_name='tmp.b', chunk_size=1000
     scale_view = scale.view(-1)
     N = x_view.shape[0]
     chunks = int(np.ceil(N/chunk_size))
-    Is_Q_tensor = isinstance(Q, torch.Tensor)
-    if Is_Q_tensor: Q_view = Q.view(-1)
+
+    # print('N', N)
+
+    if isinstance(Q, torch.Tensor): 
+        Q_view = Q.view(-1)
+
     bit_len_list = []
     for c in range(chunks):
         bit_len = encoder_gaussian(
-            x=x_view[c*chunk_size:c*chunk_size + chunk_size],
-            mean=mean_view[c*chunk_size:c*chunk_size + chunk_size],
-            scale=scale_view[c*chunk_size:c*chunk_size + chunk_size],
-            Q=Q_view[c*chunk_size:c*chunk_size + chunk_size] if Is_Q_tensor else Q,
-            file_name=file_name.replace('.b', f'_{str(c)}.b'),
+            x = x_view[c*chunk_size:c*chunk_size + chunk_size],
+            mean = mean_view[c*chunk_size:c*chunk_size + chunk_size],
+            scale = scale_view[c*chunk_size:c*chunk_size + chunk_size],
+            Q = Q_view[c*chunk_size:c*chunk_size + chunk_size] if isinstance(Q, torch.Tensor) else Q,
+            file_name = file_name.replace('.b', f'_{str(c)}.b'),
         )
         bit_len_list.append(bit_len)
     return sum(bit_len_list)
@@ -344,6 +348,11 @@ def encoder_gaussian(x, mean, scale, Q, file_name='tmp.b'):
     # assert len(x.shape) == 1
     if not isinstance(Q, torch.Tensor):
         Q = torch.tensor([Q], dtype=mean.dtype, device=mean.device).repeat(mean.shape[0])
+    # print('x:', x)
+    # print('Q:', Q)
+    # print('x_max', x.max())
+    # print('x_min', x.min())
+    # print('x/Q', x / Q)
     x_int_round = torch.round(x / Q)  # [100]
     max_value = x_int_round.max()
     min_value = x_int_round.min()
@@ -373,6 +382,13 @@ def encoder_gaussian(x, mean, scale, Q, file_name='tmp.b'):
         fout.write(np.array([len_cnt_bytes]).astype(np.int32).tobytes())
         fout.write(cnt_bytes)
         fout.write(byte_stream_bytes)
+
+        # print('min_value:', min_value)
+        # print('max_value:', max_value)
+        # print('len_cnt_bytes:', len_cnt_bytes)
+        # print('cnt_torch:', cnt_torch)
+        # print('byte_stream_torch:', byte_stream_torch)
+
     bit_len = (len(byte_stream_bytes) + len(cnt_bytes))*8 + 32 * 3
     return bit_len
 
@@ -411,6 +427,13 @@ def decoder_gaussian(mean, scale, Q, file_name='tmp.b'):
         len_cnt_bytes = np.frombuffer(fin.read(4), dtype=np.int32)[0]
         cnt_torch = torch.tensor(np.frombuffer(fin.read(len_cnt_bytes), dtype=np.int32).copy(), device="cuda")
         byte_stream_torch = torch.tensor(np.frombuffer(fin.read(), dtype=np.uint8).copy(), device="cuda")
+
+        # print('min_value:', min_value)
+        # print('max_value:', max_value)
+        # print('len_cnt_bytes:', len_cnt_bytes)
+        # print('cnt_torch:', cnt_torch)
+        # print('byte_stream_torch:', byte_stream_torch)
+    
 
     lower = arithmetic.calculate_cdf(
         mean,

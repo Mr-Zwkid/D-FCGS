@@ -9,12 +9,12 @@ __device__ float gaussian_cdf(float x, float mean, float scale) {
 }
 
 __global__ void calculate_cdf_kernel(
-    const torch::PackedTensorAccessor32<float, 1, torch::RestrictPtrTraits> mean,
-    const torch::PackedTensorAccessor32<float, 1, torch::RestrictPtrTraits> scale,
-    const torch::PackedTensorAccessor32<float, 1, torch::RestrictPtrTraits> Q,
+    const torch::PackedTensorAccessor64<float, 1, torch::RestrictPtrTraits> mean,
+    const torch::PackedTensorAccessor64<float, 1, torch::RestrictPtrTraits> scale,
+    const torch::PackedTensorAccessor64<float, 1, torch::RestrictPtrTraits> Q,
     const int min_value,
     const int max_value,
-    torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> lower
+    torch::PackedTensorAccessor64<float, 2, torch::RestrictPtrTraits> lower
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= mean.size(0)) return;
@@ -41,12 +41,12 @@ torch::Tensor calculate_cdf_cu(
     int blocks = (N + threads_per_block - 1) / threads_per_block;
 
     calculate_cdf_kernel<<<blocks, threads_per_block>>>(
-        mean.packed_accessor32<float, 1, torch::RestrictPtrTraits>(),
-        scale.packed_accessor32<float, 1, torch::RestrictPtrTraits>(),
-        Q.packed_accessor32<float, 1, torch::RestrictPtrTraits>(),
+        mean.packed_accessor64<float, 1, torch::RestrictPtrTraits>(),
+        scale.packed_accessor64<float, 1, torch::RestrictPtrTraits>(),
+        Q.packed_accessor64<float, 1, torch::RestrictPtrTraits>(),
         min_value,
         max_value,
-        lower.packed_accessor32<float, 2, torch::RestrictPtrTraits>()
+        lower.packed_accessor64<float, 2, torch::RestrictPtrTraits>()
     );
 
     cudaDeviceSynchronize();
@@ -92,10 +92,10 @@ public:
 
 
 __global__ void encode_arithmetic_kernel(
-    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> cdf,
-    const torch::PackedTensorAccessor32<int16_t, 1, torch::RestrictPtrTraits> sym,
-    torch::PackedTensorAccessor32<uint8_t, 2, torch::RestrictPtrTraits> out_cache_all,
-    torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> out_cnt_all,
+    const torch::PackedTensorAccessor64<float, 2, torch::RestrictPtrTraits> cdf,
+    const torch::PackedTensorAccessor64<int16_t, 1, torch::RestrictPtrTraits> sym,
+    torch::PackedTensorAccessor64<uint8_t, 2, torch::RestrictPtrTraits> out_cache_all,
+    torch::PackedTensorAccessor64<int32_t, 1, torch::RestrictPtrTraits> out_cnt_all,
     const int chunk_size,
     const int chunk_num,
     const int Lp,
@@ -115,7 +115,7 @@ __global__ void encode_arithmetic_kernel(
     uint32_t high = 0xFFFFFFFFU;
     uint64_t pending_bits = 0;
     float new_max_value = (1 << precision) - (Lp - 1);
-    const int current_chunk_size = min(chunk_size, sym.size(0) - dim0_offset);
+    const int current_chunk_size = min(chunk_size, static_cast<int>(sym.size(0) - dim0_offset));
 
     for (int i = 0; i < current_chunk_size; ++i) {
         const int16_t sym_i = sym[dim0_offset + i];
@@ -164,9 +164,9 @@ __global__ void encode_arithmetic_kernel(
 
 
 __global__ void merge_chunks_kernel(
-    const torch::PackedTensorAccessor32<uint8_t, 2, torch::RestrictPtrTraits> out_cache_all,
-    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> out_cnt_all,
-    torch::PackedTensorAccessor32<uint8_t, 1, torch::RestrictPtrTraits> out_final,
+    const torch::PackedTensorAccessor64<uint8_t, 2, torch::RestrictPtrTraits> out_cache_all,
+    const torch::PackedTensorAccessor64<int32_t, 1, torch::RestrictPtrTraits> out_cnt_all,
+    torch::PackedTensorAccessor64<uint8_t, 1, torch::RestrictPtrTraits> out_final,
     const int chunk_num
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -202,10 +202,10 @@ std::tuple<torch::Tensor, torch::Tensor> arithmetic_encode_cu(
     int blocks = (chunk_num + threads_per_block - 1) / threads_per_block;
 
     encode_arithmetic_kernel<<<blocks, threads_per_block>>>(
-        cdf.packed_accessor32<float, 2, torch::RestrictPtrTraits>(),
-        sym.packed_accessor32<int16_t, 1, torch::RestrictPtrTraits>(),
-        out_cache_all.packed_accessor32<uint8_t, 2, torch::RestrictPtrTraits>(),
-        out_cnt_all.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(),
+        cdf.packed_accessor64<float, 2, torch::RestrictPtrTraits>(),
+        sym.packed_accessor64<int16_t, 1, torch::RestrictPtrTraits>(),
+        out_cache_all.packed_accessor64<uint8_t, 2, torch::RestrictPtrTraits>(),
+        out_cnt_all.packed_accessor64<int32_t, 1, torch::RestrictPtrTraits>(),
         chunk_size,
         chunk_num,
         Lp,
@@ -220,9 +220,9 @@ std::tuple<torch::Tensor, torch::Tensor> arithmetic_encode_cu(
     torch::Tensor out_final = torch::zeros({total_length}, out_cache_all.options());
 
     merge_chunks_kernel<<<blocks, threads_per_block>>>(
-        out_cache_all.packed_accessor32<uint8_t, 2, torch::RestrictPtrTraits>(),
-        out_cnt_all.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(),
-        out_final.packed_accessor32<uint8_t, 1, torch::RestrictPtrTraits>(),
+        out_cache_all.packed_accessor64<uint8_t, 2, torch::RestrictPtrTraits>(),
+        out_cnt_all.packed_accessor64<int32_t, 1, torch::RestrictPtrTraits>(),
+        out_final.packed_accessor64<uint8_t, 1, torch::RestrictPtrTraits>(),
         chunk_num
     );
 
@@ -263,7 +263,7 @@ public:
 };
 
 __device__ int16_t binsearch(
-    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> cdf,
+    const torch::PackedTensorAccessor64<float, 2, torch::RestrictPtrTraits> cdf,
     const uint16_t target,
     int max_sym,
     const int row_index,
@@ -288,11 +288,11 @@ __device__ int16_t binsearch(
 
 
 __global__ void decode_arithmetic_kernel(
-    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> cdf,
-    const torch::PackedTensorAccessor32<uint8_t, 1, torch::RestrictPtrTraits> in_cache_all,
-    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> in_cnt_cum_all,
-    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> in_cnt_all,
-    torch::PackedTensorAccessor32<int16_t, 1, torch::RestrictPtrTraits> decoded_sym,
+    const torch::PackedTensorAccessor64<float, 2, torch::RestrictPtrTraits> cdf,
+    const torch::PackedTensorAccessor64<uint8_t, 1, torch::RestrictPtrTraits> in_cache_all,
+    const torch::PackedTensorAccessor64<int32_t, 1, torch::RestrictPtrTraits> in_cnt_cum_all,
+    const torch::PackedTensorAccessor64<int32_t, 1, torch::RestrictPtrTraits> in_cnt_all,
+    torch::PackedTensorAccessor64<int16_t, 1, torch::RestrictPtrTraits> decoded_sym,
     const int chunk_size,
     const int chunk_num,
     const int Lp,
@@ -313,7 +313,7 @@ __global__ void decode_arithmetic_kernel(
     const float new_max_value = (1 << precision) - (Lp - 1);
     const uint64_t c_count = (1 << precision);
     in_cache.initialize(value, in_, length_cnt);
-    const int current_chunk_size = min(chunk_size, decoded_sym.size(0) - dim0_offset);
+    const int current_chunk_size = min(chunk_size, static_cast<int>(decoded_sym.size(0) - dim0_offset));
 
     for (int i = 0; i < current_chunk_size; ++i) {
         const uint64_t span = static_cast<uint64_t>(high) - static_cast<uint64_t>(low) + 1;
@@ -386,11 +386,11 @@ torch::Tensor arithmetic_decode_cu(
     int blocks = (chunk_num + threads_per_block - 1) / threads_per_block;
 
     decode_arithmetic_kernel<<<blocks, threads_per_block>>>(
-        cdf.packed_accessor32<float, 2, torch::RestrictPtrTraits>(),
-        in_cache_all.packed_accessor32<uint8_t, 1, torch::RestrictPtrTraits>(),
-        in_cnt_cum_all.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(),
-        in_cnt_all.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(),
-        decoded_sym.packed_accessor32<int16_t, 1, torch::RestrictPtrTraits>(),
+        cdf.packed_accessor64<float, 2, torch::RestrictPtrTraits>(),
+        in_cache_all.packed_accessor64<uint8_t, 1, torch::RestrictPtrTraits>(),
+        in_cnt_cum_all.packed_accessor64<int32_t, 1, torch::RestrictPtrTraits>(),
+        in_cnt_all.packed_accessor64<int32_t, 1, torch::RestrictPtrTraits>(),
+        decoded_sym.packed_accessor64<int16_t, 1, torch::RestrictPtrTraits>(),
         chunk_size,
         chunk_num,
         Lp,
