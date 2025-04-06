@@ -21,76 +21,6 @@ from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
 
-
-class SimpleGaussianModel():
-    def __init__(self, pc):
-        self.setup_functions()
-        self.active_sh_degree = pc.active_sh_degree
-        self.max_sh_degree = pc.max_sh_degree
-        self._xyz = pc._xyz.detach().clone()
-        self._features_dc = pc._features_dc.detach().clone()
-        self._features_rest = pc._features_rest.detach().clone()
-        self._scaling = pc._scaling.detach().clone()
-        self._rotation = pc._rotation.detach().clone()
-        self._opacity = pc._opacity.detach().clone()
-        self.max_radii2D = pc.max_radii2D.detach().clone()
-        # self.xyz_gradient_accum = pc.xyz_gradient_accum.detach().clone()
-        # self.denom = pc.denom.detach().clone()
-        # self.spatial_lr_scale = pc.spatial_lr_scale.detach().clone()
-        # self.optimizer = None
-        
-
-    def capture(self):
-        return (
-            self.active_sh_degree,
-            self._xyz,
-            self._features_dc,
-            self._features_rest,
-            self._scaling,
-            self._rotation,
-            self._opacity,
-            self.max_radii2D,
-        )
-    
-    @property
-    def get_scaling(self):
-        return self.scaling_activation(self._scaling)
-    
-    @property
-    def get_rotation(self):
-        return self.rotation_activation(self._rotation)
-    
-    @property
-    def get_xyz(self):
-        return self._xyz
-    
-    @property
-    def get_features(self):
-        features_dc = self._features_dc
-        features_rest = self._features_rest
-        return torch.cat((features_dc, features_rest), dim=1)
-    
-    @property
-    def get_opacity(self):
-        return self.opacity_activation(self._opacity)
-
-    def setup_functions(self):
-        def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
-            L = build_scaling_rotation(scaling_modifier * scaling, rotation)
-            actual_covariance = L @ L.transpose(1, 2)
-            symm = strip_symmetric(actual_covariance)
-            return symm
-        
-        self.scaling_activation = torch.exp
-        self.scaling_inverse_activation = torch.log
-
-        self.covariance_activation = build_covariance_from_scaling_rotation
-
-        self.opacity_activation = torch.sigmoid
-        self.inverse_opacity_activation = inverse_sigmoid
-
-        self.rotation_activation = torch.nn.functional.normalize
-
 class GaussianModel(nn.Module):
 
     def setup_functions(self):
@@ -501,3 +431,82 @@ class GaussianModel(nn.Module):
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True)
         self.denom[update_filter] += 1
+    
+
+class SimpleGaussianModel(nn.Module):
+    def __init__(self, pc):
+        super().__init__()
+        self.setup_functions()
+        self.active_sh_degree = pc.active_sh_degree
+        self.max_sh_degree = pc.max_sh_degree
+        self._xyz = pc._xyz.detach().clone()
+        self._features_dc = pc._features_dc.detach().clone()
+        self._features_rest = pc._features_rest.detach().clone()
+        self._scaling = pc._scaling.detach().clone()
+        self._rotation = pc._rotation.detach().clone()
+        self._opacity = pc._opacity.detach().clone()
+        self.max_radii2D = pc.max_radii2D.detach().clone()
+        # self.xyz_gradient_accum = pc.xyz_gradient_accum.detach().clone()
+        # self.denom = pc.denom.detach().clone()
+        # self.spatial_lr_scale = pc.spatial_lr_scale.detach().clone()
+        # self.optimizer = None
+        
+
+    def capture(self):
+        return (
+            self.active_sh_degree,
+            self._xyz,
+            self._features_dc,
+            self._features_rest,
+            self._scaling,
+            self._rotation,
+            self._opacity,
+            self.max_radii2D,
+        )
+    
+    @property
+    def get_scaling(self):
+        return self.scaling_activation(self._scaling)
+    
+    @property
+    def get_rotation(self):
+        return self.rotation_activation(self._rotation)
+    
+    @property
+    def get_xyz(self):
+        return self._xyz
+    
+    @property
+    def get_features(self):
+        features_dc = self._features_dc
+        features_rest = self._features_rest
+        return torch.cat((features_dc, features_rest), dim=1)
+    
+    @property
+    def get_opacity(self):
+        return self.opacity_activation(self._opacity)
+
+    def setup_functions(self):
+        def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
+            L = build_scaling_rotation(scaling_modifier * scaling, rotation)
+            actual_covariance = L @ L.transpose(1, 2)
+            symm = strip_symmetric(actual_covariance)
+            return symm
+        
+        self.scaling_activation = torch.exp
+        self.scaling_inverse_activation = torch.log
+
+        self.covariance_activation = build_covariance_from_scaling_rotation
+
+        self.opacity_activation = torch.sigmoid
+        self.inverse_opacity_activation = inverse_sigmoid
+
+        self.rotation_activation = torch.nn.functional.normalize
+    
+    def add_new_points(self, new_xyz, new_features_dc, new_features_rest, new_scaling, new_rotation, new_opacity):
+        self._xyz = torch.cat((self._xyz, new_xyz), dim=0)
+        self._features_dc = torch.cat((self._features_dc, new_features_dc.view(-1, 1, 3)), dim=0)
+        self._features_rest = torch.cat((self._features_rest, new_features_rest.view(-1, 15, 3)), dim=0)
+        self._scaling = torch.cat((self._scaling, new_scaling), dim=0)
+        self._rotation = torch.cat((self._rotation, new_rotation), dim=0)
+        self._opacity = torch.cat((self._opacity, new_opacity), dim=0)

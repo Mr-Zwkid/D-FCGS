@@ -10,6 +10,9 @@ class STE_multistep(torch.autograd.Function):
     def forward(ctx, input, Q, input_mean=None):
         Q_round = torch.round(input / Q)
         Q_q = Q_round * Q
+        # print('Q_q:', Q_q)
+        # print('Q:', Q)
+        # print('Q_round:', Q_round)
         return Q_q
     @staticmethod
     def backward(ctx, grad_output):
@@ -47,7 +50,7 @@ def encoder_factorized_chunk(x, lower_func, Q:float = 1, file_name='tmp.b', chun
         bit_len = encoder_factorized(
             x=x[c * chunk_size:c * chunk_size + chunk_size],
             lower_func=lower_func,
-            Q=Q,
+            Q= Q,
             file_name=file_name.replace('.b', f'_{str(c)}.b'),
         )
         bit_len_list.append(bit_len)
@@ -123,8 +126,8 @@ def decoder_factorized_chunk(lower_func, Q, N_len, dim, file_name='tmp.b', devic
     for c in range(chunks):
         x_c = decoder_factorized(
             lower_func=lower_func,
-            Q=Q,
             N_len=min(chunk_size, N_len-c*chunk_size),
+            Q=Q,
             dim=dim,
             file_name=file_name.replace('.b', f'_{str(c)}.b'),
             device=device,
@@ -146,6 +149,7 @@ def decoder_factorized(lower_func, Q, N_len, dim, file_name='tmp.b', device='cud
 
     samples = torch.tensor(range(int(min_value.item()), int(max_value.item()) + 1)).to(
         torch.float).to(device)  # from min_value to max_value+1. shape = [max_value+1 - min_value]
+    
     samples = samples.unsqueeze(0).unsqueeze(0).repeat(dim, 1, 1)  # [256, 1, max_value+1 - min_value]
 
     # lower_func: [C, 1, N]
@@ -309,7 +313,9 @@ def decoder_gaussian_mixed(mean_list, scale_list, prob_list, Q, file_name='tmp.b
         chunk_size_cuda,
         int(lower.shape[0]),
         int(lower.shape[1])
-    ).to(mean.device).to(torch.float32)
+    ).to(mean.device).to(torch.int16)
+    # print('sym_out:', sym_out)
+    # print('min_value:', min_value)
     x = sym_out + min_value
     x = x * Q
     return x
@@ -348,11 +354,22 @@ def encoder_gaussian(x, mean, scale, Q, file_name='tmp.b'):
     # assert len(x.shape) == 1
     if not isinstance(Q, torch.Tensor):
         Q = torch.tensor([Q], dtype=mean.dtype, device=mean.device).repeat(mean.shape[0])
-    # print('x:', x)
-    # print('Q:', Q)
+    
+
+    # print('x:', x.shape)
+    # print('Q:', Q.shape)
     # print('x_max', x.max())
     # print('x_min', x.min())
-    # print('x/Q', x / Q)
+    # print('x:', x.shape)
+    # print('mean:', mean.shape)
+    # print('scale:', scale.shape)
+    
+    # if Q.shape != x.shape:
+    #     padding = x.shape[0] - Q.shape[0]
+    #     Q = torch.cat([Q, torch.ones(padding, dtype=Q.dtype, device=Q.device)], dim=0)
+    
+    # print('Q:', Q.shape)
+
     x_int_round = torch.round(x / Q)  # [100]
     max_value = x_int_round.max()
     min_value = x_int_round.min()
@@ -401,6 +418,11 @@ def decoder_gaussian_chunk(mean, scale, Q, file_name='tmp.b', chunk_size=1000_00
     Is_Q_tensor = isinstance(Q, torch.Tensor)
     if Is_Q_tensor: Q_view = Q.view(-1)
     x_c_list = []
+
+    # print('mean_view', mean_view.shape)
+    # print('scale_view', scale_view.shape)
+    # print('Q_view', Q_view.shape)
+
     for c in range(chunks):
         x_c = decoder_gaussian(
             mean=mean_view[c*chunk_size:c*chunk_size + chunk_size],

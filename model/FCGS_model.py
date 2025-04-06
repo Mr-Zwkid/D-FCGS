@@ -623,6 +623,8 @@ class FCGS(nn.Module):
     def compress(self, g_xyz, g_fea, means=None, stds=None, testing=True, root_path='./', chunk_size_list=(), determ_codec=False):
         c_size_fea, c_size_feq, c_size_geo = chunk_size_list
         g_xyz, g_fea = sorted_orig_voxels(g_xyz, g_fea)  # to morton order
+
+        print(g_fea)
         
         # compress position
         print('Start compressing xyz...')

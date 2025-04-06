@@ -114,6 +114,12 @@
         "SIZE": 43.8
     },
 
+    "Ours_joint(for 3DGStream)": {
+        "type": "3DGS",
+        "PSNR": 30.26,
+        "SIZE": 18
+    },
+
     "HiCoM(NIPS24)": {
         "type": "3DGS",
         "PSNR": 31.17,

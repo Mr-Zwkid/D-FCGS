@@ -16,6 +16,7 @@ from scene import Scene
 from typing import NamedTuple
 import lpips
 from utils.loss_utils import l1_loss, ssim
+import torchvision
 lpips_fn = lpips.LPIPS(net='vgg').to('cuda')
 
 class D1(NamedTuple):
@@ -28,6 +29,7 @@ class D1(NamedTuple):
     sh_degree: int
     source_path: str
     white_background: bool
+    use_first_as_test: bool = True
 
 class D2(NamedTuple):
     convert_SHs_python: bool
@@ -93,6 +95,8 @@ def train(args):
     gaussians.save_ply(args.ply_path_to)
     print(f"Decompressed ply file saved to {args.ply_path_to}!")
 
+    torch.cuda.empty_cache()
+
     with torch.no_grad():
         ssim_test_sum = 0
         L1_test_sum = 0
@@ -102,6 +106,7 @@ def train(args):
         for _, view in enumerate(tqdm(views, desc="Rendering progress")):
             rendering = render(view, gaussians, pipe=pipeline, bg_color=torch.tensor([0, 0, 0], dtype=torch.float32, device="cuda"))[
                 "render"]  # [3, H, W]
+            torchvision.utils.save_image(rendering, os.path.join('.', f"{id}.png"))
             gt = view.original_image[0:3, :, :].to("cuda")
             rendering = torch.round(rendering.mul(255).clamp_(0, 255)) / 255.0
             ssim_test_sum += (ssim(rendering, gt)).mean().double().item()

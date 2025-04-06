@@ -1,0 +1,20 @@
+# ninja log v5
+12	33349	1741769086380222054	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/pointops_api.o	34af49bc52a336b
+4	35879	1741769088936220126	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/grouping/grouping_cuda_kernel.o	944d46515a5feb63
+11	36020	1741769089076220021	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/labelstat/labelstat_cuda_kernel.o	39077286c562461e
+12	36040	1741769089096220005	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/sampling/sampling_cuda_kernel.o	f7b7387389503a
+7	37049	1741769090104219245	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/knnquery/knnquery_cuda_kernel.o	4a1f2e071e107a8c
+7	37256	1741769090308219091	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/knnquery_heap/knnquery_heap_cuda_kernel.o	fcdb09afbb80dc00
+2	37328	1741769090384219034	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/ballquery/ballquery_cuda_kernel.o	590cb0615f3623c4
+6	37401	1741769090452218982	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/interpolation/interpolation_cuda_kernel.o	740bcc6c655490dc
+4	37442	1741769090500218946	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/grouping_int/grouping_int_cuda_kernel.o	f03189494a97e342
+3	37600	1741769090652218832	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/featuredistribute/featuredistribute_cuda_kernel.o	f7634a246f57f614
+32	16183	1741790211397620269	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/knnquery_heap/knnquery_heap_cuda.o	73d609d4bd73030c
+32	16232	1741790211449620124	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/knnquery/knnquery_cuda.o	fd7b0d97f0f4a846
+31	16245	1741790211457620102	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/grouping/grouping_cuda.o	ffbe222f1fde1dab
+33	16279	1741790211497619991	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/sampling/sampling_cuda.o	9cae1ebe6b7441c8
+33	16524	1741790211741619312	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/labelstat/labelstat_cuda.o	5843fd75719a7967
+32	16653	1741790211873618944	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/interpolation/interpolation_cuda.o	df537344eb03429c
+32	16835	1741790212053618444	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/grouping_int/grouping_int_cuda.o	af9e87aff3b79e6b
+31	16858	1741790212081618366	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/featuredistribute/featuredistribute_cuda.o	2e80c12d15efa109
+31	17612	1741790212837616269	/SSD2/chenzx/Projects/D-PCC/models/pointops/build/temp.linux-x86_64-cpython-311/src/ballquery/ballquery_cuda.o	909701e1e9cbc125
