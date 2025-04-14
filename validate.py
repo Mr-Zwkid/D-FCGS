@@ -54,6 +54,7 @@ def validate(gaussians, scene, args, save_path='', save_img=False, logger=None):
         Ll1_avg = sum(L1_test.values()) / len(views)
         lpips_avg = sum(lpips_test.values()) / len(views)
         psnr_avg = sum(psnr_test.values()) / len(views)
+    print('save_path', save_path)
 
     with open(os.path.join(save_path, 'rendering_info.json'), 'w') as f:
         data = {'PSNR': psnr_avg,
@@ -83,6 +84,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--gpu", default=0, type=int)
     parser.add_argument("--ply_path", default="./bitstreams/tmp/point_cloud.ply", type=str)
+    parser.add_argument("--save_path", default="./bitstreams/tmp/point_cloud.ply", type=str)
     # parser.add_argument("--source_path", default="./path/to/scene/", type=str)
     parser.add_argument("--use_first_as_test", action="store_true")
     args = parser.parse_args(sys.argv[1:])
@@ -96,4 +98,4 @@ if __name__ == "__main__":
 
     scene = Scene(args, shuffle=False)
     # Validate the scene
-    validate(gaussians, scene, args)
+    validate(gaussians, scene, args, save_path=args.save_path)

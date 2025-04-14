@@ -1,63 +1,36 @@
-# [ARXIV'24] FCGS
-Official Pytorch implementation of **Fast Feedforward 3D Gaussian Splatting Compression**.
-## Compress existing 3DGS rapidly in seconds without optimization!
+# [ARXIV'25] D-FCGS
+Official Pytorch Implementation of **D-FCGS: Feedforward Compression of Dynamic Gaussian Splatting for Free-Viewpoint Videos**.
 
-[Yihang Chen](https://yihangchen-ee.github.io), 
-[Qianyi Wu](https://qianyiwu.github.io), 
-[Mengyao Li](https://scholar.google.com/citations?user=fAIEYrEAAAAJ&hl=zh-CN&oi=ao), 
-[Weiyao Lin](https://weiyaolin.github.io),
-[Mehrtash Harandi](https://sites.google.com/site/mehrtashharandi/),
-[Jianfei Cai](http://jianfei-cai.github.io)
+[Wenkang Zhang](https://mr-zwkid.github.io/), 
+[Yao Zhao](https://github.com/adminasmi), 
+[Qiang Wang](https://scholar.google.com/citations?user=17E9fdUAAAAJ&hl=en), 
+[Zhengxue Cheng](https://medialab.sjtu.edu.cn/author/zhengxue-cheng/)
 
-[[`Arxiv`](https://arxiv.org/pdf/2410.08017)] [[`Project`](https://yihangchen-ee.github.io/project_fcgs/)] [[`Github`](https://github.com/YihangChen-ee/FCGS)]
+<!-- [[`Arxiv`](https://arxiv.org/pdf/2410.08017)] [[`Project`](https://yihangchen-ee.github.io/project_fcgs/)] [[`Github`](https://github.com/YihangChen-ee/FCGS)] -->
 
-## Links
-Welcome to check a series of works from our group on 3D radiance field representation compression as listed below:
-- 🎉 [CNC](https://github.com/yihangchen-ee/cnc/) [CVPR'24] is now released for efficient NeRF compression! [[`Paper`](https://openaccess.thecvf.com/content/CVPR2024/papers/Chen_How_Far_Can_We_Compress_Instant-NGP-Based_NeRF_CVPR_2024_paper.pdf)] [[`Arxiv`](https://arxiv.org/pdf/2406.04101)] [[`Project`](https://yihangchen-ee.github.io/project_cnc/)]
-- 🏠 [HAC](https://github.com/yihangchen-ee/hac/) [ECCV'24] is now released for efficient 3DGS compression! [[`Paper`](https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/01178.pdf)] [`Arxiv`](https://arxiv.org/pdf/2403.14530)] [[`Project`](https://yihangchen-ee.github.io/project_hac/)]
-- 🚀 [FCGS](https://github.com/yihangchen-ee/fcgs/) [ARXIV'24] is now released for fast optimization-free 3DGS compression! [[`Arxiv`](https://arxiv.org/pdf/2410.08017)] [[`Project`](https://yihangchen-ee.github.io/project_fcgs/)]
 
 ## Overview
 <p align="left">
-<img src="assets/teaser.png" width=80% height=80% 
+<img src="assets/teaser.png" width=100%
 class="center">
 </p>
 
-Although various compression techniques have been proposed, previous art suffers from a common limitation: 
-*for any existing 3DGS, per-scene optimization is needed to achieve compression, making the compression sluggish and slow.* 
-To address this issue, we introduce Fast Compression of 3D Gaussian Splatting (FCGS), 
-an optimization-free model that can compress 3DGS representations rapidly in a single feed-forward pass,
-which significantly reduces compression time from minutes to seconds.
+Left: Existing GS-based methods for FVV often couple scene reconstruction with compression and requireper scene optimization, resulting in reduced generalizability. In contrast,our D-FCGS decouples these stages with a single feedforward
+ pass that compresses inter-frame motion in Gaussian frames,enabling efficient compression and storage for FFV. Right: Despite
+ being optimization-free, D-FCGS achieves competitive rate-distortion performance compared to optimization-based methods.
 
-## Performance
+## Method
 <p align="left">
-<img src="assets/main_curve.png" width=80% height=80% 
+<img src="assets/method.png" width=100%
 class="center">
 </p>
 
-While all the other approaches are optimization-based compression which have natural advantages for a better RD performance, we still outperform most of them in an optimization-free manner for fast compression.
-Our compression time is only ```1/10``` compared to others!
 
 ## Installation
 
-We tested our code on a server with Ubuntu 20.04.1, cuda 11.8, gcc 9.4.0. We use NVIDIA L40s GPU (48G).
+<!-- We tested our code on a server with Ubuntu 20.04.1, cuda 11.8, gcc 9.4.0. We use NVIDIA L40s GPU (48G).
+ -->
 
-1. Clone our code
-```
-git clone git@github.com:YihangChen-ee/FCGS.git --recursive
-```
-
-2. Install environment
-```
-conda env create --file environment.yml
-conda activate FCGS_env
-```
-
-3. Install ```tmc3``` (for GPCC)
-
-- Please refer to [tmc3 github](https://github.com/MPEGGroup/mpeg-pcc-tmc13) for installation.
-- Don't forget to add ```tmc3``` to your environment variable, otherwise you must manually specify its location [in our code](https://github.com/YihangChen-ee/FCGS/blob/main/model/gpcc_utils.py) by searching ```change tmc3 path``` (2 places in total).
-- Tips: ```tmc3``` is commonly located at ```PATH/TO/mpeg-pcc-tmc13/build/tmc3```.
 
 ## Run
 FCGS can *directly* compress any existing 3DGS representations to bitstreams. The input should be a *.ply* file following the 3DGS format.
@@ -96,23 +69,22 @@ We alongside publish a CUDA-based arithmetic codec implementation (based on [tor
 
 ## Contact
 
-- Yihang Chen: yhchen.ee@sjtu.edu.cn
+- Wenkang Zhang: conquer.wkzhang@sjtu.edu.cn
 
 ## Citation
 
-If you find our work helpful, please consider citing:
-
-```bibtex
+<!-- ```bibtex
 @article{fcgs2024,
   title={Fast Feedforward 3D Gaussian Splatting Compression},
   author={Chen, Yihang and Wu, Qianyi and Li, Mengyao and Lin, Weiyao and Harandi, Mehrtash and Cai, Jianfei},
   journal={arXiv preprint arXiv:2410.08017},
   year={2024}
 }
-```
+``` -->
 
 
 ## Acknowledgement
 
- - We thank all authors from [3D-GS](https://github.com/graphdeco-inria/gaussian-splatting) for presenting such an excellent work.
- - We thank [Xiangrui](https://liuxiangrui.github.io)'s help on GPCC codec.
+ - We thank authors from [3D-GS](https://github.com/graphdeco-inria/gaussian-splatting) for presenting such an excellent work.
+ - We thank authors from [3DGStream](https://github.com/SJoJoK/3DGStream) for extending 3DGS to a streamable version, thus providing a simple way of generating sequential Gaussian frames.
+ - We thank authors from [FCGS](https://github.com/YihangChen-ee/FCGS) for their pioneering work on feedforward compression of static Gaussian Splatting.

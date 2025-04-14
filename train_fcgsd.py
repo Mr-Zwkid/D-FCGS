@@ -66,7 +66,8 @@ def train_frame_setup(args, frame_cur, frame_next=None):
         args.source_path = f'/SDD_D/zwk/data_dynamic/{args.dataset}/{args.scene_name.split("-")[0]}/frame{frame_cur+1:06d}'
         args.model_path = os.path.join(args.model_path.split('frame')[0], f'frame{frame_cur+1:06d}')
     
-    elif args.dynamicGS_type == '3dgstream_explicit' or args.dynamicGS_type == '3dgstream_implicit':
+    elif args.dynamicGS_type == '3dgstream_explicit' or args.dynamicGS_type == '3dgstream_implicit' or  args.dynamicGS_type == 'control_point':
+
         if frame_cur == 0:
             args.init_3dgs = f'/SSD2/chenzx/Projects/Dataset4Compression/init_3dgs/{args.dataset}/{args.scene_name}/frame000000/point_cloud/iteration_4000/point_cloud.ply'
         else:
@@ -78,7 +79,7 @@ def train_frame_setup(args, frame_cur, frame_next=None):
         base_dir = '/SDD_D/zwk/data_dynamic' if args.dataset == 'dynerf' or args.dataset == 'meetroom' else '/SSD2/chenzx/Projects/Dataset4Compression'
         args.source_path = f'{base_dir}/{args.dataset}/{args.scene_name.split("-")[0]}/frame{frame_next:06d}'
         args.model_path = os.path.join(args.model_path.split('frame')[0], f'frame{frame_next:06d}')
-      
+
 def train_frame(args):
     logger = args.logger
 
@@ -125,35 +126,26 @@ def train_frame_gof(args):
     buffer_gaussian = None
 
     for i in pbar:
+
+        # set frame/scene to train
         with torch.no_grad():
             if args.use_scenes and i % args.gof_size == 0:
-                torch.cuda.empty_cache()
                 args.scene_name = args.scene_list[torch.randint(0, len(args.scene_list), (1,)).item()]
-                print(f"Scene: {args.scene_name}")
-
                 frame_cur = torch.randint(args.frame_start, args.frame_end, (1,)).item() // args.gof_size * args.gof_size
                 frame_next = frame_cur + 1
                 train_frame_setup(args, frame_cur, frame_next)
                 model.refresh_settings(args)
             else:
-                torch.cuda.empty_cache()
                 frame_cur = min(frame_cur + 1, args.frame_end - 2)
-                frame_next = min(frame_next + 1, args.frame_end - 1)
+                frame_next = frame_cur + 1
                 train_frame_setup(args, frame_cur, frame_next)
                 model.buffer_loading(args, buffer_gaussian)
-        print(f"Frame: {frame_cur} -> {frame_next}")
-        print('Scene:', args.scene_name)
+        
 
-        loss_render, size, loss_mask, loss_motion = model()
-        loss_size = size
+        loss_render, loss_size = model()
 
         lambda_size = args.lambda_size if i > args.iterations // 3 else 0.0
-        # lambda_motion = 0.01 if i > args.iterations // 3 else 0.0
-        lambda_motion = 0.01
-        # lambda_render = 1 if i > args.iterations // 10 else 0.0
-        # lambda_size = args.lambda_size
-        lambda_render = 1
-        loss = loss_render * lambda_render + loss_size * lambda_size + loss_mask * 0.01 + loss_motion *lambda_motion
+        loss = loss_render + loss_size * lambda_size
 
         optimizer.zero_grad()
         loss.backward(retain_graph=True)
@@ -163,30 +155,30 @@ def train_frame_gof(args):
 
         render_loss.append(loss_render.item())
         size_loss.append(loss_size.item())
-        mask_loss.append(loss_mask.item())
         total_loss.append(loss.item())
 
-        # 日志记录
+        # logging
         logger.log_iteration(i, {
             'loss_render': loss_render.item() if hasattr(loss_render, 'item') else loss_render,
             'loss_size': loss_size.item() if hasattr(loss_size, 'item') else loss_size,
-            'loss_mask': loss_mask.item() if hasattr(loss_mask, 'item') else loss_mask,
             'total_loss': loss.item() if hasattr(loss, 'item') else loss
         }, additional_info={'frame_cur': frame_cur, 'frame_next': frame_next})
 
         pbar.set_postfix({
             'loss_render': loss_render.item() if hasattr(loss_render, 'item') else loss_render,
             'loss_size': loss_size.item() if hasattr(loss_size, 'item') else loss_size,
-            'loss_mask': loss_mask.item() if hasattr(loss_mask, 'item') else loss_mask,
             'total_loss': loss.item() if hasattr(loss, 'item') else loss
         })
 
-        if args.checkpoint is not None and int(i) == args.checkpoint:
+        # save checkpoint
+        if args.checkpoint is not None and args.checkpoint == i:
             model_path = os.path.join(args.model_path.split('frame')[0], f'checkpoint_{args.checkpoint}.pth')
             logger.logger.info(f"Saving checkpoint to {model_path}")
             os.makedirs(args.model_path, exist_ok=True)
             torch.save(model.state_dict(), model_path)
             logger.log_checkpoint(model_path)
+
+        # update buffer frame
         with torch.no_grad():
             buffer_gaussian = model.buffer_capture()
 
@@ -478,6 +470,7 @@ def conduct_compress_decompress_as_gof(args, frame_start, frame_end):
             conduct_compress(args, model_path, args.init_3dgs, args.motion_estimator_path, os.path.join(args.model_path, 'motion.b'), os.path.join(args.model_path, 'motion_prior.b'), os.path.join(args.model_path, 'mask.b'), args.next_3dgs)
             buffer_gaussian = conduct_decompress(args, model_path, args.init_3dgs, os.path.join(args.model_path, 'motion.b'), os.path.join(args.model_path, 'motion_prior.b'), os.path.join(args.model_path, 'mask.b'), os.path.join(args.model_path, 'output.ply'))
         else:
+            
             conduct_compress(args, model_path, args.init_3dgs, args.motion_estimator_path, os.path.join(args.model_path, 'motion.b'), os.path.join(args.model_path, 'motion_prior.b'), os.path.join(args.model_path, 'mask.b'), args.next_3dgs, use_buffer=True, buffer_gaussian=buffer_gaussian)
             conduct_decompress(args, model_path, args.init_3dgs, os.path.join(args.model_path, 'motion.b'), os.path.join(args.model_path, 'motion_prior.b'), os.path.join(args.model_path, 'mask.b'), os.path.join(args.model_path, 'output.ply'))
             
@@ -524,7 +517,10 @@ def conduct_compress(args, model_path, init_3dgs_path, ntc_path, y_hat_bit_path 
         print(init_3dgs_path)
         print(nxt_gaussians_path)
 
+        cur_time = time.time()
         res = myFCGS_D.compress(init_3dgs_path, ntc_path, y_hat_bit_path, z_hat_bit_path, mask_path, dynamicGS_type=args.dynamicGS_type, nxt_gaussians_path=nxt_gaussians_path, use_buffer=use_buffer, buffer_gaussian=buffer_gaussian)
+        duration = time.time() - cur_time
+        logger.logger.info(f"Compression time: {duration:.2f} seconds")
         with open(os.path.join(args.model_path, 'size.json'), 'w') as f:
             json.dump(res, f, indent=True)
         
@@ -542,7 +538,10 @@ def conduct_decompress(args, model_path, init_3dgs_path, y_hat_bit_path = 'motio
         myFCGS_D.cuda()
         scene = myFCGS_D.scene
 
+        cur_time = time.time()
         rec_gaussians = myFCGS_D.decompress(init_3dgs_path, y_hat_bit_path, z_hat_bit_path, mask_path, dynamicGS_type=args.dynamicGS_type)
+        duration = time.time() - cur_time
+        logger.logger.info(f"Decompression time: {duration:.2f} seconds")
         # rec_gaussians.save_ply(save_ply_path)
         validate(rec_gaussians, scene, args,  args.model_path, save_img=True, logger=logger)
     return rec_gaussians
@@ -607,73 +606,75 @@ def validate(gaussians, scene, args, save_path='', save_img=False, logger=None):
 
         json.dump(final_data, f, indent=True)
 
- 
-if __name__ == "__main__":
+def arg_parse():
     parser = argparse.ArgumentParser(description='FCGS_D')
     lp = ModelParams(parser)
     op = OptimizationParams(parser)
     pp = PipelineParams(parser)
 
-    parser.add_argument('--Q_y', type=float, default=1e-3, help='granularity of quantization')
-    parser.add_argument('--Q_z', type=float, default=1, help='granularity of quantization')
-    parser.add_argument('--gof_size', type=int, default=20, help='number of gaussian frames in a group')
+    parser.add_argument('--gpu', type=int, default=0)
+
+    # hyper parameters
+    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
+    parser.add_argument('--lambda_size', type=float, default=1e-3, help='scaler of z')
+    parser.add_argument('--Q_y', type=float, default=1, help='granularity of quantization for latent code')
+    parser.add_argument('--Q_z', type=float, default=1, help='granularity of quantization for hyper latent code')
+    parser.add_argument('--gof_size', type=int, default=5, help='number of gaussian frames in a group')
     parser.add_argument('--gaussian_feature_dim', type=int, default=56, help='dimension of gaussian feature')
     parser.add_argument('--motion_dim', type=int, default=7, help='dimension of motion')
-    parser.add_argument('--hidden_dim', type=int, default=64, help='dimension of hidden')
-    parser.add_argument('--lat_dim', type=int, default=16, help='dimension of latent')
+    parser.add_argument('--hidden_dim', type=int, default=64, help='dimension of hidden layers of MLP')
+    parser.add_argument('--lat_dim', type=int, default=16, help='dimension of latent code')
+    parser.add_argument('--downsample_rate', type=int, default=100, help='downsample rate')
+    parser.add_argument('--knn_num', type=int, default=10, help='number of nearest neighbors')
+    parser.add_argument('--motion_limit', type=float, default=0.1, help='motion limit')
+
+    # path setting
     parser.add_argument('--init_3dgs', type=str, default=None, help='path to initial 3dgs')
     parser.add_argument('--next_3dgs', type=str, default=None, help='path to next 3dgs')
     parser.add_argument('--motion_estimator_path', type=str, default=None, help='path to motion estimator')
-    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
-    parser.add_argument('--frame_start', type=int, default=1)
-    parser.add_argument('--frame_end', type=int, default=300)
-    parser.add_argument('--dynamicGS_type', type=str, default='3dgstream')
-    parser.add_argument('--scene_name', type=str, default='cook_spinach')
-    parser.add_argument('--scene_list', nargs='+', default=['sear_steak-5'])
-    parser.add_argument('--use_first_as_test', action='store_true', help='use first frame as test')
-    parser.add_argument('--gpu', type=int, default=0)
+    parser.add_argument('--checkpoint_path', type=str, default=None, help='path to checkpoint pth file') 
+    
+    # training/testing config
     parser.add_argument('--conduct_training', action='store_true', help='conduct training')
     parser.add_argument('--conduct_compress', action='store_true', help='conduct compress')
     parser.add_argument('--conduct_decompress', action='store_true', help='conduct decompress')
-    parser.add_argument('--scaler_y', type=int, default=1, help='scaler of y')
-    parser.add_argument('--lambda_size', type=float, default=1e-3, help='scaler of z')
-    parser.add_argument('--mask_rate', type=float, default=0.1, help='mask rate')
+    parser.add_argument('--use_first_as_test', action='store_true', help='use first frame as test, same as 3DGStream')
+    parser.add_argument('--random_init', action='store_true', help='randomly initialize the I frame')
+    parser.add_argument('--without_refinement', action='store_true', help='without refinement')
+    parser.add_argument('--without_context', action='store_true', help='without contest prior')
+    parser.add_argument('--without_hyper', action='store_true', help='without hyperprioe')
     parser.add_argument('--per_frame', action='store_true', help='train per frame')
     parser.add_argument('--joint', action='store_true', help='train jointly')
+    parser.add_argument('--use_scenes', action='store_true', help='use scenes')
+    parser.add_argument('--use_gof', action='store_true', help='use group of frames')
+
+    parser.add_argument('--frame_start', type=int, default=1, help='start frame for training')
+    parser.add_argument('--frame_end', type=int, default=300, help='end frame for training')
     parser.add_argument('--test_frame_start', type=int, default=1)
     parser.add_argument('--test_frame_end', type=int, default=300)
-    parser.add_argument('--checkpoint_path', type=str, default=None)
-    parser.add_argument('--checkpoint', type=str, default=None)
-    parser.add_argument('--norm_radius', type=float, default=3)
-    parser.add_argument('--residual_num', type=int, default=1e3)
-    parser.add_argument('--use_scenes', action='store_true', help='use scenes')
-    parser.add_argument('--logger', type=Logger, default=None)
+
+    parser.add_argument('--dynamicGS_type', type=str, default='3dgstream')
     parser.add_argument('--dataset', type=str, default='dynerf')
-    parser.add_argument('--use_gof', action='store_true', help='use group of frames')
-    parser.add_argument('--random_init', action='store_true', help='randomly initialize the I frame')
-    parser.add_argument('--motion_limit', type=float, default=0.1, help='motion limit')
+    parser.add_argument('--scene_name', type=str, default='cook_spinach')
+    parser.add_argument('--scene_list', nargs='+', default=['sear_steak-5'])
+    parser.add_argument('--checkpoint', type=str, default=None, help='checkpoint saving iteration')
+    parser.add_argument('--logger', type=Logger, default=None)
+
 
 
     args = parser.parse_args()
 
     logger = Logger(args.model_path)
     logger.log_args(args)
-
     args.logger = logger
 
+    return args, logger, lp, op, pp
+
+if __name__ == "__main__":
+
+    args, logger, lp, op, pp = arg_parse()
+
     torch.cuda.set_device(args.gpu)
-
-    # model = FCGS_D(args).cuda()
-    # model.eval()
-    # for scene_name in args.scene_list:
-    #     args.scene_name = scene_name
-    #     print(f"Scene: {scene_name}")
-    #     for frame in range(args.frame_start, args.frame_end):
-    #         print(f"Frame: {frame}")
-    #         train_frame_setup(args, frame)
-    #         model.refresh_settings(args)
-    #         model.test()
-
 
     if args.per_frame:
         train_frame(args)
@@ -682,7 +683,7 @@ if __name__ == "__main__":
         if args.conduct_training:
             if args.dynamicGS_type == '3dgstream':
                 train_frame_jointly(args)
-            elif args.dynamicGS_type == '3dgstream_explicit' or args.dynamicGS_type == '3dgstream_implicit':
+            elif args.dynamicGS_type == '3dgstream_explicit' or args.dynamicGS_type == '3dgstream_implicit' or args.dynamicGS_type == 'control_point':
                 train_frame_jointly_stepping(args)
         
         if not args.use_scenes:
@@ -721,7 +722,6 @@ if __name__ == "__main__":
             args.scene_list = [args.scene_name]
         ori_model_path = args.model_path
 
-        
         if args.conduct_compress and args.conduct_decompress:
             for scene_name in args.scene_list:
                 args.scene_name = scene_name

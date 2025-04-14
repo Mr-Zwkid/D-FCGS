@@ -104,15 +104,10 @@
 
     "3DGStream(Reproduced)": {
         "type": "3DGS",
-        "PSNR": 30.76,
-        "SIZE": 2490
+        "PSNR": 32.20,
+        "SIZE": 2325
     },
 
-    "Ours(for 3DGStream)": {
-        "type": "3DGS",
-        "PSNR": 30.54,
-        "SIZE": 43.8
-    },
 
     "Ours_joint(for 3DGStream)": {
         "type": "3DGS",
@@ -125,13 +120,13 @@
         "PSNR": 31.17,
         "SIZE": 210
     },
-    "Swift3D(ICLR25)":{
+    "Swift4D(ICLR25)":{
         "type": "3DGS",
         "PSNR": 32.23,
         "SIZE": 120
     },
 
-    "Swift3D-lite(ICLR25)":{
+    "Swift4D-lite(ICLR25)":{
         "type": "3DGS",
         "PSNR": 31.79,
         "SIZE": 30
@@ -141,7 +136,7 @@
         "PSNR": 31.58,
         "SIZE": 150
     },
-    "QUEEN-small(NIPS24":{
+    "QUEEN-small(NIPS24)":{
         "type": "3DGS",
         "PSNR": 31.89,
         "SIZE": 204

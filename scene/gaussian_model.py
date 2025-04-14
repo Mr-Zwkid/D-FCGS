@@ -222,6 +222,7 @@ class GaussianModel(nn.Module):
         self._opacity = optimizable_tensors["opacity"]
 
     def load_ply(self, path, device="cuda"):
+        print(path)
         plydata = PlyData.read(path)
 
         xyz = np.stack((np.asarray(plydata.elements[0]["x"]),

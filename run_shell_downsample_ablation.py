@@ -1,10 +1,10 @@
-date = '0414'
+date = '0410'
 import os
 # lambda_size_list = [1e-3,  5e-3, 1e-4, 1e-5, 1e-2]
 lambda_size_list = [5e-3]
-sample_rate_list = [40]
+sample_rate_list = [20, 50, 100, 200]
 
-scene_list = ['sear_steak-5']
+scene_list = ['sear_steak-5', 'cut_roasted_beef', 'flame_salmon_1', 'cook_spinach', 'coffee_martini', 'flame_steak']
 # scene_list = ['sear_steak-5']
 for lambda_size in lambda_size_list:
     for sample_rate in sample_rate_list:
@@ -16,6 +16,6 @@ for lambda_size in lambda_size_list:
             --frame_start 1 --frame_end 300 --test_frame_start 0 --test_frame_end 300 --gof_size 300  --iterations 1000\
             --conduct_compress --conduct_decompress \
             --images images --model_path {model_path} --use_first_as_test \
-            --scene_list {' '.join(scene_list)} --dataset dynerf --knn_num 30 --downsample_rate {sample_rate}\
+            --scene_list {' '.join(scene_list)} --dataset dynerf --knn_num {int(sample_rate/2)} --downsample_rate {sample_rate}\
             "
         os.system(script)
