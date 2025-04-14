@@ -33,39 +33,7 @@ class="center">
 
 
 ## Run
-FCGS can *directly* compress any existing 3DGS representations to bitstreams. The input should be a *.ply* file following the 3DGS format.
 
-### To compress a *.ply* file to bitstreams, run:
-
-```
-python encode_single_scene.py --lmd A_lambda --ply_path_from PATH/TO/LOAD/point_cloud.ply --bit_path_to PATH/TO/SAVE/BITSTREAMS --determ 1
-```
- - ```lmd```: the trade-off parameter for size and fidelity. Chosen in [```1e-4```, ```2e-4```, ```4e-4```, ```8e-4```, ```16e-4```].
- - ```ply_path_from```: A *.ply* file. Path to load the source *.ply* file.
- - ```bit_path_to```: A directory. Path to save the compressed bitstreams.
- - ```determ```: see [atomic statement](https://github.com/YihangChen-ee/FCGS/blob/main/docs/atomic_statement.md)
-
-### To decompress a *.ply* file from bitstreams, run:
-
-```
-python decode_single_scene.py --lmd A_lambda --bit_path_from PATH/TO/LOAD/BITSTREAMS --ply_path_to PATH/TO/SAVE/point_cloud.ply
-```
- - ```lmd```: the trade-off parameter for size and fidelity. Chosen in [```1e-4```, ```2e-4```, ```4e-4```, ```8e-4```, ```16e-4```].
- - ```bit_path_from```: A directory. Path to load the compressed bitstreams.
- - ```ply_path_to```: A *.ply* file. Path to save the decompressed *.ply* file.
-
-### To decompress a *.ply* file from bitstreams and validate fidelity of the decompressed 3DGS, run:
-
-```
-python decode_single_scene_validate.py --lmd A_lambda --bit_path_from PATH/TO/LOAD/BITSTREAMS --ply_path_to PATH/TO/SAVE/point_cloud.ply --source_path PATH/TO/SOURCE/SCENES
-```
- - ```source_path```: A directory. Path to load the source scene images for validation.
-
-### Tips
-FCGS is compatible with pruning-based techniques such as [Mini-Splatting](https://github.com/fatPeter/mini-splatting) and [Trimming the fat](https://github.com/salmanali96/trimming-the-fat). You can *directly* apply FCGS to the *.ply* file output by these two approaches to further boost the compression performance.
-
-## CUDA accelerated arithmetic codec
-We alongside publish a CUDA-based arithmetic codec implementation (based on [torchac](https://github.com/fab-jul/torchac)), you can find it in [arithmetic](https://github.com/YihangChen-ee/FCGS/blob/main/submodules/arithmetic) and its usage [here](https://github.com/YihangChen-ee/FCGS/blob/main/model/encodings_cuda.py).
 
 ## Contact
 
