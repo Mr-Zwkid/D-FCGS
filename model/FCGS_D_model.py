@@ -556,11 +556,15 @@ class FCGS_D(nn.Module):
             gaussians.load_ply(file_path)
         return gaussians
 
-    def compress(self, cur_gaussians_path, motion_estimator_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_bit_path = 'mask.b', dynamicGS_type='3dgstream', nxt_gaussians_path=None, use_buffer = False, buffer_gaussian = None):
+    def compress(self, cur_gaussians_path, motion_estimator_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_bit_path = 'mask.b', dynamicGS_type='3dgstream', nxt_gaussians_path=None, use_buffer = False, buffer_gaussian = None, add_position_noise=False):
         
         cur_gaussians = self.read_gaussian_file(cur_gaussians_path) if not use_buffer else buffer_gaussian
         nxt_gaussians = self.read_gaussian_file(nxt_gaussians_path) if nxt_gaussians_path is not None else None
         self.MotionEstimatorSetup(dynamicGS_type, motion_estimator_path) # useless
+
+        if add_position_noise:
+            noise = torch.randn_like(cur_gaussians._xyz) * 0.5
+            cur_gaussians._xyz += noise
 
         cur_xyz, cur_fea, N_gaussian = GaussianParameterPack(cur_gaussians)
 
@@ -595,8 +599,8 @@ class FCGS_D(nn.Module):
         # print('dec_motion: ', dec_motion, dec_motion.max(), dec_motion.min(), dec_motion.sum(dim=1))
         # print('mse: ', F.mse_loss(dec_motion, est_motion))
 
-        bits_motion = encoder_gaussian_chunk(y_hat_motion, mean_motion.contiguous(), std_motion, Q_y, y_hat_bit_path, chunk_size=100000)
-        bits_prior_motion = encoder_factorized_chunk(z_hat_motion, self.EntropyFactorizedMotion._logits_cumulative, Q_z, z_hat_bit_path, chunk_size=10000)
+        bits_motion = encoder_gaussian_chunk(y_hat_motion, mean_motion.contiguous(), std_motion, self.Q_y, y_hat_bit_path, chunk_size=100000)
+        bits_prior_motion = encoder_factorized_chunk(z_hat_motion, self.EntropyFactorizedMotion._logits_cumulative, self.Q_z, z_hat_bit_path, chunk_size=10000)
 
         return {
             'bits_motion': bits_motion / bit_to_MB,

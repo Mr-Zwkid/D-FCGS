@@ -3,6 +3,7 @@ output_gt
 ply
 submodules
 res
-spring_sample
 3DGStream-Res
+rebuttal
 *.pyc
+__pycache__

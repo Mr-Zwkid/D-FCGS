@@ -2,7 +2,7 @@
 Official Pytorch Implementation of **D-FCGS: Feedforward Compression of Dynamic Gaussian Splatting for Free-Viewpoint Videos**.
 
 [Wenkang Zhang](https://mr-zwkid.github.io/), 
-[Yao Zhao](https://github.com/adminasmi), 
+[Yan Zhao](https://github.com/adminasmi), 
 [Qiang Wang](https://scholar.google.com/citations?user=17E9fdUAAAAJ&hl=en), 
 [Zhengxue Cheng](https://medialab.sjtu.edu.cn/author/zhengxue-cheng/)
 

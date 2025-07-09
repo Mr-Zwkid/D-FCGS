@@ -1,0 +1,61 @@
+{
+    "D-NeRF": {
+        "type": "NeRF",
+        "size": 30,
+        "psnr": 31.69,
+        "ssim": 0.975,
+        "lpips": 0.057
+    },
+    "TiNeuVos": {
+        "type": "NeRF",
+        "psnr": 33.76,
+        "ssim": 0.984,
+        "lpips": 0.044
+    },
+    "Tensor4D": {
+        "type": "NeRF",
+        "psnr": 27.72,
+        "ssim": 0.945,
+        "lpips": 0.051
+    },
+    "K-Planes": {
+        "type": "NeRF",
+        "psnr": 32.32,
+        "ssim": 0.973,
+        "lpips": 0.038
+    },
+    "CoGS": {
+        "type": "3DGS",
+        "psnr": 37.9,
+        "ssim": 0.983,
+        "lpips": 0.027
+    },
+    "GauFRe": {
+        "type": "3DGS",
+        "psnr": 34.808,
+        "ssim": 0.985,
+        "lpips": 0.028
+    },
+    "4D-GS(Triplane)": {
+        "type": "3DGS",
+        "psnr": 34.01,
+        "ssim": 0.989,
+        "lpips": 0.025
+    },
+    "Deformable 3DGS": {
+        "type": "3DGS",
+        "psnr": 39.51,
+        "ssim": 0.99,
+        "lpips": 0.012
+    },
+    "SC-GS": {
+        "type": "3DGS",
+        "psnr": 43.3,
+        "ssim": 0.997,
+        "lpips": 0.0078
+    },
+    "4DGS(Representation)": {
+        "type": "3DGS",
+        "psnr": 33.57
+    }
+}
