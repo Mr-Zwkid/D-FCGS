@@ -28,8 +28,28 @@ class="center">
 
 ## Installation
 
-<!-- We tested our code on a server with Ubuntu 20.04.1, cuda 11.8, gcc 9.4.0. We use NVIDIA L40s GPU (48G).
- -->
+1. clone our code
+   ```bash
+   git clone https://github.com/Mr-Zwkid/FCGS-D.git --recursive  
+   ```
+
+2. create conda env and enter it
+   ```bash
+   conda create -n dfcgs python=3.10
+   conda activate dfcgs
+   ```
+
+3. install pakages
+   ```bash
+   conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
+   pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
+   pip install pytorch3d lpips tqdm plyfile 
+   pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
+   pip install submodules/simple-knn
+   pip install submodules/diff-gaussian-rasterization
+   pip install submodules/arithmetic
+   ```
+   
 
 
 ## Run
