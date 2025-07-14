@@ -407,5 +407,3 @@ if __name__ == "__main__":
     torch.cuda.set_device(args.gpu)
 
     main(args)
-
-

@@ -50,7 +50,31 @@ class="center">
    pip install submodules/arithmetic
    ```
    
+## Dataset Preprocess
+1. Multiview Video Datasets
+   - [Neural 3D Video](https://github.com/facebookresearch/Neural_3D_Video/releases/tag/v1.0)
+   - [Meetroom](https://www.modelscope.cn/datasets/DAMOXR/dynamic_nerf_meeting_room_dataset/files)
+   - [Google Immersive](https://github.com/augmentedperception/deepview_video_dataset?tab=readme-ov-file)
+   - [WideRange4D](https://huggingface.co/datasets/Gen-Verse/WideRange4D)
 
+2. Extract Frames
+   Assume the path to the scene is `data_video/Immersive/01_Welder`. Extract the frames using
+      ```python
+      python extract_frames.py --base_dir data_video/Immersive/01_Welder [--scale_factor 2]
+      ```
+
+3. Colmap
+   - Initial Frame
+      ```python
+      python convert_base.py -s data_video/Immersive/01_Welder/frame000000
+      ```
+   - Subsequent Frames
+      ```python
+      python copy_cams.py --source data_video/Immersive/01_Welder/frame000000 --scene  data_video/Immersive/01_Welder
+      python convert_frames.py -s data_video/Immersive/01_Welder [--last_frame_id 299]
+      ```
+
+   
 
 ## Run
 
