@@ -43,7 +43,7 @@ class="center">
    ```bash
    conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
    pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
-   pip install pytorch3d lpips tqdm plyfile 
+   pip install pytorch3d lpips tqdm plyfile commentjson
    pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
    pip install submodules/simple-knn
    pip install submodules/diff-gaussian-rasterization
@@ -57,23 +57,88 @@ class="center">
    - [Google Immersive](https://github.com/augmentedperception/deepview_video_dataset?tab=readme-ov-file)
    - [WideRange4D](https://huggingface.co/datasets/Gen-Verse/WideRange4D)
 
-2. Extract Frames
-   Assume the path to the scene is `data_video/Immersive/01_Welder`. Extract the frames using
-      ```python
-      python extract_frames.py --base_dir data_video/Immersive/01_Welder [--scale_factor 2]
-      ```
+2. Extract Frames and Colmap Process
+   Assume the path to multi-view videos of one scene is `data_video/Immersive/04_Truck`, use following command to derive frames and per-frame colmap results.
+   ```bash
+   python data_preprocess.py --base_dir data_video/Immersive/04_Truck --start_frame 0 --end_frame 149 [--scale_factor 2]
+   # frame range: [start_frame, end_frame]
+   ```
 
-3. Colmap
-   - Initial Frame
-      ```python
-      python convert_base.py -s data_video/Immersive/01_Welder/frame000000
-      ```
-   - Subsequent Frames
-      ```python
-      python copy_cams.py --source data_video/Immersive/01_Welder/frame000000 --scene  data_video/Immersive/01_Welder
-      python convert_frames.py -s data_video/Immersive/01_Welder [--last_frame_id 299]
-      ```
+3. Derive Inititial Gaussian Frame
+   ```bash
+   python derive_init_gs.py --dataset_dir ./data_video/Immersive --scene_list 04_Truck
+   ```
 
+4. Derive Subsequent Gaussian Frames
+   ```bash
+   python derive_gs_frames.py --dataset_dir ../data_video/Immersive --scene_list 04_Truck --start_frame 1 --end_frame 149
+   # frame range: [start_frame, end_frame]
+   ```
+
+5. The dataset of one scene `data_video/Immersive/04_Truck` ends like:
+
+   ```
+   04_Truck/
+   ├── camera_0001.mp4 ... camera_0046.mp4   # Original multi-view videos
+   ├── cfg_args.json  # for 3DGStream train_frames.py
+   ├── models.json   # camera parameters
+   ├── distorted/
+   │   ├── database.db
+   │   └── sparse/
+   │       └── 0/
+   │           ├── cameras.bin
+   │           ├── frames.bin
+   │           ├── images.bin
+   │           ├── points3D.bin
+   │           ├── project.ini
+   │           └── rigs.bin
+   ├── frame000000/
+   │   ├── images/
+   │   │   ├── cam01.png ... cam46.png      # All camera images at this frame (undistorted version)
+   │   ├── gs/
+   │   │   ├── cameras.json
+   │   │   ├── input.ply
+   │   │   ├── per_view.json
+   │   │   ├── point_cloud/
+   │   │   │   └── iteration_3000/
+   │   │   │       └── point_cloud.ply
+   │   │   ├── results.json
+   │   │   └── ... (other configs/results)
+   │   ├── sparse/
+   │   │   └── 0/
+   │   ├── distorted/
+   │   ├── run-colmap-geometric.sh
+   │   ├── run-colmap-photometric.sh
+   │   ├── stereo/
+   │   └── ... (other Colmap related folders)
+   ├── frame000001/
+   │   ├── images/
+   │   │   ├── cam01.png ... cam46.png      # All camera images at this frame (undistorted version)
+   │   ├── gs/
+   │   │   ├── 0_rendering1.png
+   │   │   ├── 0_rendering2.png
+   │   │   ├── NTC.pth
+   │   │   ├── cfg_args
+   │   │   ├── point_cloud/
+   │   │   │   ├── iteration_150/
+   │   │   │   │   └── point_cloud.ply
+   │   │   │   └── iteration_250/
+   │   │   │       └── point_cloud.ply
+   │   │   └── results.json
+   │   ├── sparse/
+   │   │   └── 0/
+   │   ├── stereo/
+   │   └── ...
+   ├── frame000002/
+   └── ...
+   ```
+
+- `camera_XXXX.mp4`: Original videos for each camera (You can delete them)
+- `frame000000/`, `frame000001/`, ...: Per-frame folders, each containing all camera images and reconstruction results for that frame.
+  - `images/`: All camera images for this frame (undistorted), named as `camXX.png`.
+  - `gs/`: Gaussian point cloud and related configs/results.
+  - `sparse/`: Colmap sparse reconstruction results.
+  - Other folders: Colmap intermediate files, distorted images, etc.
    
 
 ## Run

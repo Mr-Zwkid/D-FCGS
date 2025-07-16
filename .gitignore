@@ -8,4 +8,6 @@ rebuttal
 *.pyc
 __pycache__
 
-data*
+data_video
+
+3DGStream/ntc/*.pth

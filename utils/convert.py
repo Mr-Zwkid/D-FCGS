@@ -30,12 +30,6 @@ magick_command = '"{}"'.format(args.magick_executable) if len(args.magick_execut
 use_gpu = 1 if not args.no_gpu else 0
 
 inputDir='/'+args.image_dir
-if not os.path.exists(args.source_path + inputDir):
-    os.mkdir(args.source_path + inputDir)
-    for file in os.listdir(args.source_path):
-        if file.endswith('.png') or file.endswith('.jpg'):
-            shutil.move(os.path.join(args.source_path, file), os.path.join(args.source_path + inputDir, file))
-
 
 if not args.skip_matching:
     os.makedirs(args.source_path + "/distorted/sparse", exist_ok=True)
@@ -131,4 +125,4 @@ if(args.resize):
             logging.error(f"12.5% resize failed with code {exit_code}. Exiting.")
             exit(exit_code)
 
-print("Done.")
+print("Done!")
