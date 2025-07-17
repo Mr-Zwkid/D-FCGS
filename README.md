@@ -6,13 +6,18 @@ Official Pytorch Implementation of **D-FCGS: Feedforward Compression of Dynamic 
 [![arXiv](https://img.shields.io/badge/Arxiv-2507.05859-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2507.05859) [![Home Page](https://img.shields.io/badge/Project-Website-green.svg)](#) [![Code](https://img.shields.io/badge/Github-Code-blue.svg?logo=github)](https://github.com/Mr-Zwkid/FCGS-D) 
 
 
+<p align="left">
+<img src="assets/teaser.png" width=100%
+class="center">
+</p>
+
 
 
 Left: Existing GS-based methods for FVV often couple scene reconstruction with compression and requireper scene optimization, resulting in reduced generalizability. In contrast,our D-FCGS decouples these stages with a single feedforward
  pass that compresses inter-frame motion in Gaussian frames,enabling efficient compression and storage for FFV. Right: Despite
  being optimization-free, D-FCGS achieves competitive rate-distortion performance compared to optimization-based methods.
 
-## Method
+## 00 Method
 <p align="left">
 <img src="assets/method.png" width=100%
 class="center">
