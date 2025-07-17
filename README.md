@@ -1,19 +1,12 @@
 # [ARXIV'25] D-FCGS
 Official Pytorch Implementation of **D-FCGS: Feedforward Compression of Dynamic Gaussian Splatting for Free-Viewpoint Videos**.
 
-[Wenkang Zhang](https://mr-zwkid.github.io/), 
-[Yan Zhao](https://github.com/adminasmi), 
-[Qiang Wang](https://scholar.google.com/citations?user=17E9fdUAAAAJ&hl=en), 
-[Zhengxue Cheng](https://medialab.sjtu.edu.cn/author/zhengxue-cheng/)
+[Wenkang Zhang](https://mr-zwkid.github.io/), [Yan Zhao](https://github.com/adminasmi), [Qiang Wang](https://scholar.google.com/citations?user=17E9fdUAAAAJ&hl=en), [Li Song](https://medialab.sjtu.edu.cn/author/li-song/), [Zhengxue Cheng](https://medialab.sjtu.edu.cn/author/zhengxue-cheng/)
 
-<!-- [[`Arxiv`](https://arxiv.org/pdf/2410.08017)] [[`Project`](https://yihangchen-ee.github.io/project_fcgs/)] [[`Github`](https://github.com/YihangChen-ee/FCGS)] -->
+[![arXiv](https://img.shields.io/badge/Arxiv-2507.05859-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2507.05859) [![Home Page](https://img.shields.io/badge/Project-Website-green.svg)](#) [![Code](https://img.shields.io/badge/Github-Code-blue.svg?logo=github)](https://github.com/Mr-Zwkid/FCGS-D) 
 
 
-## Overview
-<p align="left">
-<img src="assets/teaser.png" width=100%
-class="center">
-</p>
+
 
 Left: Existing GS-based methods for FVV often couple scene reconstruction with compression and requireper scene optimization, resulting in reduced generalizability. In contrast,our D-FCGS decouples these stages with a single feedforward
  pass that compresses inter-frame motion in Gaussian frames,enabling efficient compression and storage for FFV. Right: Despite
@@ -26,7 +19,7 @@ class="center">
 </p>
 
 
-## Installation
+## 01 Installation
 
 1. clone our code
    ```bash
@@ -42,15 +35,16 @@ class="center">
 3. install pakages
    ```bash
    conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
-   pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
-   pip install pytorch3d lpips tqdm plyfile commentjson
+   pip install torch==2.2.0+cu118 torchvision==0.17.0+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
+   pip install pytorch3d==0.7.8+pt2.2.0cu118 --extra-index-url https://miropsota.github.io/torch_packages_builder 
+   pip install lpips tqdm plyfile commentjson
    pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
    pip install submodules/simple-knn
    pip install submodules/diff-gaussian-rasterization
    pip install submodules/arithmetic
    ```
    
-## Dataset Preprocess
+## 02 Dataset Preprocess
 1. Multiview Video Datasets
    - [Neural 3D Video](https://github.com/facebookresearch/Neural_3D_Video/releases/tag/v1.0)
    - [Meetroom](https://www.modelscope.cn/datasets/DAMOXR/dynamic_nerf_meeting_room_dataset/files)
@@ -141,7 +135,14 @@ class="center">
   - Other folders: Colmap intermediate files, distorted images, etc.
    
 
-## Run
+## 03 Inference
+We put one checkpoint into `ckpt/model.pth`. You can test on your GS point cloud sequences as follows. Remeber to change `dataset_path`, `dataset_name`, `scene_list`  according to your need.
+```python
+   python run_dfcgs_infer.py
+```
+
+## 04 Train
+
 
 
 ## Contact
@@ -150,14 +151,14 @@ class="center">
 
 ## Citation
 
-<!-- ```bibtex
-@article{fcgs2024,
-  title={Fast Feedforward 3D Gaussian Splatting Compression},
-  author={Chen, Yihang and Wu, Qianyi and Li, Mengyao and Lin, Weiyao and Harandi, Mehrtash and Cai, Jianfei},
-  journal={arXiv preprint arXiv:2410.08017},
-  year={2024}
+```bibtex
+@article{zhang2025d,
+  title={D-FCGS: Feedforward Compression of Dynamic Gaussian Splatting for Free-Viewpoint Videos},
+  author={Zhang, Wenkang and Zhao, Yan and Wang, Qiang and Song, Li and Cheng, Zhengxue},
+  journal={arXiv preprint arXiv:2507.05859},
+  year={2025}
 }
-``` -->
+```
 
 
 ## Acknowledgement

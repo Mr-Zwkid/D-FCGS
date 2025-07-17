@@ -17,6 +17,9 @@ from utils.image_utils import psnr
 from utils.loss_utils import l1_loss, ssim
 
 from utils.logger import Logger
+import glob
+
+lpips_fn = lpips.LPIPS(net='vgg').to('cuda')
 
 def plot_loss_curve(render_loss, size_loss, total_loss, save_path):
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
@@ -51,23 +54,27 @@ def read_gaussian_file( file_path, sh_degree = 3):
         gaussians.load_ply(file_path)
     return gaussians
 
-# TODO Clear the path definition
+def path_match(pattern):
+    matches = glob.glob(pattern)
+    if matches:
+        return sorted(matches)[-1]  # pick the last one (highest iteration)
+    else:
+        raise FileNotFoundError(f"No matching files found for pattern: {pattern}")
+
 def train_frame_setup(args, frame_cur, frame_next=None):
     
     if args.dynamicGS_type == '3dgstream_explicit' or args.dynamicGS_type == '3dgstream_implicit' or  args.dynamicGS_type == 'control_point':
+        base_dir = f'{args.dataset_path}/{args.dataset}/{args.scene_name}'
+        if frame_cur >= 0:
+            init_pattern = f'{base_dir}/frame{frame_cur:06d}/gs/point_cloud/iteration_*/point_cloud.ply'
+            args.init_3dgs = path_match(init_pattern)
 
-        if frame_cur == 0:
-            args.init_3dgs = f'/SSD2/chenzx/Projects/Dataset4Compression/init_3dgs/{args.dataset}/{args.scene_name}/frame000000/point_cloud/iteration_4000/point_cloud.ply'
-        else:
-            args.init_3dgs = f'/SSD2/chenzx/Projects/FCGS/output_gt/{args.dataset}/{args.scene_name}/frame{frame_cur:06d}/point_cloud/iteration_150/point_cloud.ply'
-        
         frame_next = frame_cur + 1 if frame_next is None else frame_next
-        args.next_3dgs = f'/SSD2/chenzx/Projects/FCGS/output_gt/{args.dataset}/{args.scene_name}/frame{frame_next:06d}/point_cloud/iteration_150/point_cloud.ply'
+        next_pattern = f'{base_dir}/frame{frame_next:06d}/gs/point_cloud/iteration_*/point_cloud.ply'
+        args.next_3dgs = path_match(next_pattern)
         
-        base_dir = '/SDD_D/zwk/data_dynamic' if args.dataset == 'dynerf' or args.dataset == 'meetroom' else '/SSD2/chenzx/Projects/Dataset4Compression'
-        args.source_path = f'{base_dir}/{args.dataset}/{args.scene_name.split("-")[0]}/frame{frame_next:06d}'
-        args.model_path = os.path.join(args.model_path.split('frame')[0], f'frame{frame_next:06d}')
-    
+        args.source_path = f'{base_dir}/frame{frame_next:06d}' # the source path for the next frame images, used for evaluation
+        args.frame_path = os.path.join(args.model_path, args.scene_name, f'frame{frame_next:06d}')
     else:
         raise ValueError(f"Unknown dynamicGS_type: {args.dynamicGS_type}")
 
@@ -160,101 +167,81 @@ def train_frame_gof(args):
     logger.log_training_complete()
 
 def conduct_compress_decompress_as_gof(args, frame_start, frame_end):
-    for frame in range(frame_start, frame_end):
-        print(frame)
-        train_frame_setup(args, frame-1, frame)
-        os.makedirs(args.model_path, exist_ok=True)
+    logger = args.logger
+    logger.create_list_for_logging('compress_time')
+    logger.create_list_for_logging('decompress_time')
+    logger.create_list_for_logging('psnr')
+    logger.create_list_for_logging('ssim')
+    logger.create_list_for_logging('lpips')
+    logger.create_list_for_logging('total_size')
 
-        model_path = os.path.join(args.model_path.split('frame')[0], 'model.pth')
-        if args.use_scenes:
-            model_path = model_path.split(f'{args.scene_name}')[0] + '/model.pth'
+    logger.log_info("Starting compress and decompress as GoF...")
+    for frame in range(frame_start, frame_end + 1):
+        logger.log_info(f"Processing frame {frame}...")
+        train_frame_setup(args, frame-1, frame)
+        os.makedirs(args.frame_path, exist_ok=True)
+
+        model_path = os.path.join(args.model_path, 'model.pth') if args.checkpoint_path is None else args.checkpoint_path
+        motion_save_path = os.path.join(args.frame_path, 'motion.b')
+        motion_prior_save_path = os.path.join(args.frame_path, 'motion_prior.b')
+        mask_save_path = os.path.join(args.frame_path, 'mask.b')
+        ply_save_path = os.path.join(args.frame_path, 'output.ply')
 
         if frame % args.gof_size == 0:
-            print('I frame')
+            logger.log_info(f"Compressing frame {frame} as I frame (Currently Skipping)...")
         elif frame % args.gof_size == 1:
-            conduct_compress(args, model_path, args.init_3dgs, args.motion_estimator_path, os.path.join(args.model_path, 'motion.b'), os.path.join(args.model_path, 'motion_prior.b'), os.path.join(args.model_path, 'mask.b'), args.next_3dgs)
-            buffer_gaussian = conduct_decompress(args, model_path, args.init_3dgs, os.path.join(args.model_path, 'motion.b'), os.path.join(args.model_path, 'motion_prior.b'), os.path.join(args.model_path, 'mask.b'), os.path.join(args.model_path, 'output.ply'))
+            conduct_compress(args, model_path, args.init_3dgs, motion_save_path, motion_prior_save_path, mask_save_path, args.next_3dgs)
+            buffer_gaussian = conduct_decompress(args, model_path, args.init_3dgs, motion_save_path, motion_prior_save_path, mask_save_path, ply_save_path)
         else:
-            conduct_compress(args, model_path, args.init_3dgs, args.motion_estimator_path, os.path.join(args.model_path, 'motion.b'), os.path.join(args.model_path, 'motion_prior.b'), os.path.join(args.model_path, 'mask.b'), args.next_3dgs, use_buffer=True, buffer_gaussian=buffer_gaussian)
-            conduct_decompress(args, model_path, args.init_3dgs, os.path.join(args.model_path, 'motion.b'), os.path.join(args.model_path, 'motion_prior.b'), os.path.join(args.model_path, 'mask.b'), os.path.join(args.model_path, 'output.ply'))
+            conduct_compress(args, model_path, args.init_3dgs, motion_save_path, motion_prior_save_path, mask_save_path, args.next_3dgs, use_buffer=True, buffer_gaussian=buffer_gaussian)
+            conduct_decompress(args, model_path, args.init_3dgs, motion_save_path, motion_prior_save_path, mask_save_path, ply_save_path, buffer_gaussian=buffer_gaussian)
+    logger.save_general_info()
             
-def conduct_compress_at_frame(args, frame) :
+def conduct_compress(args, model_path, init_3dgs_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_path = 'mask.b', nxt_gaussians_path=None, use_buffer=False, buffer_gaussian=None):
     logger = args.logger
-    
-    if args.gof_size == 1:
-        train_frame_setup(args, frame-1, frame)
-    else:
-        train_frame_setup(args, frame // args.gof_size * args.gof_size, frame)
-    os.makedirs(args.model_path, exist_ok=True)
-    logger.log_info(f"Compressing frame {frame} at {args.model_path}")
-
-    model_path = os.path.join(args.model_path.split('frame')[0], 'model.pth')
-    if args.use_scenes:
-        model_path = model_path.split(f'{args.scene_name}')[0] + '/model.pth'
-    conduct_compress(args, model_path, args.init_3dgs, args.motion_estimator_path, os.path.join(args.model_path, 'motion.b'), os.path.join(args.model_path, 'motion_prior.b'), os.path.join(args.model_path, 'mask.b'), args.next_3dgs)
-
-def conduct_decompress_at_frame(args, frame):
-    logger = args.logger
-
-    if args.gof_size == 1:
-        train_frame_setup(args, frame-1, frame)
-    else:
-        train_frame_setup(args, frame // args.gof_size * args.gof_size, frame)
-    os.makedirs(args.model_path, exist_ok=True)
-    logger.log_info(f"Decompressing frame {frame} at {args.model_path}")
-    
-    model_path = os.path.join(args.model_path.split('frame')[0], 'model.pth')
-    if args.use_scenes:
-        model_path = model_path.split(f'{args.scene_name}')[0] + '/model.pth'
-    conduct_decompress(args, model_path, args.init_3dgs, os.path.join(args.model_path, 'motion.b'), os.path.join(args.model_path, 'motion_prior.b'), os.path.join(args.model_path, 'mask.b'), os.path.join(args.model_path, 'output.ply'))
-
-def conduct_compress(args, model_path, init_3dgs_path, ntc_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_path = 'mask.b', nxt_gaussians_path=None, use_buffer=False, buffer_gaussian=None):
-    logger = args.logger
-    logger.log_info(f"Compressing model from {init_3dgs_path}")
+    logger.log_info(f"Model from {model_path}")
+    logger.log_info(f"Compressing {nxt_gaussians_path} with reference of {init_3dgs_path}")
     
     with torch.no_grad():
-        model = torch.load(model_path)
+        model = torch.load(model_path, map_location='cuda:0')
         myFCGS_D = FCGS_D(args)
         myFCGS_D.load_state_dict(model, strict=False)
         myFCGS_D.eval()
         myFCGS_D.cuda()
-        # print(init_3dgs_path)
-        # print(nxt_gaussians_path)
 
-        cur_time = time.time()
-        res = myFCGS_D.compress(init_3dgs_path, ntc_path, y_hat_bit_path, z_hat_bit_path, mask_path, dynamicGS_type=args.dynamicGS_type, nxt_gaussians_path=nxt_gaussians_path, use_buffer=use_buffer, buffer_gaussian=buffer_gaussian, add_position_noise=args.add_position_noise)
-        duration = time.time() - cur_time
+        res, duration = myFCGS_D.compress(init_3dgs_path, y_hat_bit_path, z_hat_bit_path, mask_path, dynamicGS_type=args.dynamicGS_type, nxt_gaussians_path=nxt_gaussians_path, use_buffer=use_buffer, buffer_gaussian=buffer_gaussian, add_position_noise=args.add_position_noise)
+        logger.add_to_list('compress_time', duration)
         logger.log_info(f"Compression time: {duration:.2f} seconds")
-        with open(os.path.join(args.model_path, 'size.json'), 'w') as f:
+        with open(os.path.join(args.frame_path, 'size.json'), 'w') as f:
             json.dump(res, f, indent=True)
+        logger.add_to_list('total_size', res['bits_total'])
         
         logger.log_info(f'Compression Result: {res}') 
 
-def conduct_decompress(args, model_path, init_3dgs_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_path = 'mask.b', save_ply_path = './output.ply'):
+def conduct_decompress(args, model_path, init_3dgs_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_path = 'mask.b', save_ply_path = './output.ply', buffer_gaussian=None):
     logger = args.logger
-    logger.log_info(f"Decompressing model from {init_3dgs_path}")
+    logger.log_info(f"Decompressing next Gaussian Frame from {init_3dgs_path}")
     
     with torch.no_grad():
-        model = torch.load(model_path)
+        model = torch.load(model_path, map_location='cuda:0')
         myFCGS_D = FCGS_D(args)
         myFCGS_D.load_state_dict(model, strict=False)
         myFCGS_D.eval()
         myFCGS_D.cuda()
         scene = myFCGS_D.scene
 
-        cur_time = time.time()
-        rec_gaussians = myFCGS_D.decompress(init_3dgs_path, y_hat_bit_path, z_hat_bit_path, mask_path, dynamicGS_type=args.dynamicGS_type)
-        duration = time.time() - cur_time
+        rec_gaussians, duration = myFCGS_D.decompress(init_3dgs_path, y_hat_bit_path, z_hat_bit_path, mask_path, dynamicGS_type=args.dynamicGS_type, buffer_gaussian=buffer_gaussian)
+        logger.add_to_list('decompress_time', duration)
         logger.log_info(f"Decompression time: {duration:.2f} seconds")
         # rec_gaussians.save_ply(save_ply_path)
-        validate(rec_gaussians, scene, args,  args.model_path, save_img=True, logger=logger)
+        validate(rec_gaussians, scene, args,  args.frame_path, save_img=True, logger=logger)
     return rec_gaussians
         
 def validate(gaussians, scene, args, save_path='', save_img=False, logger=None):
         
     logger.log_info("Starting validation...")
     
-    lpips_fn = lpips.LPIPS(net='vgg').to('cuda')
+    # lpips_fn = lpips.LPIPS(net='vgg').to('cuda')
     views = scene.getTestCameras()
     # views = scene.getTrainCameras()
     with torch.no_grad():
@@ -309,6 +296,10 @@ def validate(gaussians, scene, args, save_path='', save_img=False, logger=None):
         final_data = {'average': data, 'details': details}
 
         json.dump(final_data, f, indent=True)
+    
+    logger.add_to_list('psnr', psnr_avg)
+    logger.add_to_list('ssim', ssim_avg)
+    logger.add_to_list('lpips', lpips_avg)
 
 def arg_parse():
     parser = argparse.ArgumentParser(description='D-FCGS Official Implementation')
@@ -330,6 +321,7 @@ def arg_parse():
     parser.add_argument('--lat_dim', type=int, default=16, help='dimension of latent code')
     parser.add_argument('--downsample_rate', type=int, default=100, help='downsample rate')
     parser.add_argument('--knn_num', type=int, default=10, help='number of nearest neighbors')
+    parser.add_argument('--max_point_num', type=int, default=1500, help='maximum number of control points for motion estimation')
     parser.add_argument('--motion_limit', type=float, default=0.1, help='motion limit')
 
     # path setting
@@ -337,6 +329,8 @@ def arg_parse():
     parser.add_argument('--next_3dgs', type=str, default=None, help='path to next 3dgs')
     parser.add_argument('--motion_estimator_path', type=str, default=None, help='path to motion estimator')
     parser.add_argument('--checkpoint_path', type=str, default=None, help='path to checkpoint pth file') 
+    parser.add_argument('--dataset_path', type=str, default='./data_video', help='path to dataset') 
+    parser.add_argument('--frame_path', type=str, default=None, help='path to current working frame') 
     
     # training/testing config
     parser.add_argument('--conduct_training', action='store_true', help='conduct training')
@@ -354,7 +348,7 @@ def arg_parse():
     parser.add_argument('--test_frame_start', type=int, default=1)
     parser.add_argument('--test_frame_end', type=int, default=300)
 
-    parser.add_argument('--dynamicGS_type', type=str, default='3dgstream')
+    parser.add_argument('--dynamicGS_type', type=str, default='control_point', choices=['3dgstream_explicit', '3dgstream_implicit', 'control_point'], help='type of dynamic Gaussian Splatting')
     parser.add_argument('--dataset', type=str, default='dynerf')
     parser.add_argument('--dataset_list', nargs='+', default=['dynerf'])
     parser.add_argument('--scene_list', nargs='+', default=['sear_steak'])
@@ -373,15 +367,11 @@ def main(args):
     if args.conduct_training: # conduct training
         train_frame_gof(args)
     
-    ori_model_path = args.model_path
-
     if args.conduct_compress and args.conduct_decompress: # compress and decompress as GoF
         for scene_name in args.scene_list:
             args.scene_name = scene_name
-            args.model_path = os.path.join(ori_model_path, scene_name)
             conduct_compress_decompress_as_gof(args, args.test_frame_start, args.test_frame_end)
-        
-
+    
 if __name__ == "__main__":
 
     args = arg_parse()

@@ -1,5 +1,4 @@
 import torch
-import torch.amp
 import torch.nn as nn
 import torch.nn.functional as F
 import tinycudann as tcnn
@@ -16,18 +15,19 @@ from utils.image_utils import psnr
 from model.motion_estimators import NeuralTransformationCache
 from model.grid_utils import normalize_xyz, _grid_creater, _grid_encoder, FreqEncoder
 from pytorch3d.ops import sample_farthest_points, knn_points
+import matplotlib.pyplot as plt
+import time
 
 bit_to_MB = 8 * 1024 * 1024
 
 def plot_hist(x, title='histogram', bins=100, range=None, save_path=None):
-    import matplotlib.pyplot as plt
     plt.clf()
     x = x.view(-1).detach().cpu().numpy()
     plt.hist(x, bins=bins, range=range)
     plt.title(title)
     if save_path is not None:
         plt.savefig(save_path)
-    plt.show()
+    # plt.show()
 
 def GaussianParameterPack(gaussians):
     g_xyz = gaussians._xyz.detach() # [N, 3]
@@ -96,6 +96,7 @@ class FCGS_D(nn.Module):
         self.motion_limit = args.motion_limit
         self.downsample_rate = args.downsample_rate
         self.knn_num = args.knn_num
+        self.max_point_num = args.max_point_num
 
         self.without_refinement = args.without_refinement
         self.without_context = args.without_context
@@ -350,33 +351,9 @@ class FCGS_D(nn.Module):
 
 
         return render_loss
-
-    def MotionEstimatorSetup(self, dynamicGS_type, motion_estimator_path=None):
-        if dynamicGS_type == '3dgstream':
-            def get_xyz_bound(self, gaussians, percentile=86.6):
-                half_percentile = (100 - percentile) / 200
-                xyz_bound_min = torch.quantile(gaussians._xyz,half_percentile,dim=0)
-                xyz_bound_max = torch.quantile(gaussians._xyz,1 - half_percentile,dim=0)
-                return xyz_bound_min, xyz_bound_max
-            self.MotionEstimator = NeuralTransformationCache(*self.get_xyz_bound(self.cur_gaussians))
-            self.MotionEstimator.load_state_dict(torch.load(motion_estimator_path), strict=True)
-            self.MotionEstimator.requires_grad_(False)
-        elif dynamicGS_type == '3dgstream_explicit':
-            pass
-        elif dynamicGS_type == '3dgstream_implicit':
-            pass
-        elif dynamicGS_type == 'control_point':
-            pass
-        else:
-            raise ValueError('Invalid dynamicGS_type')
         
     def MotionEstimation(self, dynamicGS_type, cur_gaussians, nxt_gaussians=None):
-        if dynamicGS_type == '3dgstream':
-            xyz = cur_gaussians._xyz
-            mask, d_xyz, d_rot = self.MotionEstimator(xyz)
-            return torch.cat((d_xyz, d_rot), dim=1), None
-        
-        elif dynamicGS_type == '3dgstream_explicit':
+        if dynamicGS_type == '3dgstream_explicit':
             cur_xyz = cur_gaussians._xyz
             nxt_xyz = nxt_gaussians._xyz
 
@@ -427,6 +404,8 @@ class FCGS_D(nn.Module):
             cur_xyz = cur_gaussians._xyz.detach()
             nxt_xyz = nxt_gaussians._xyz.detach()
             sample_num = min(cur_xyz.shape[0] // self.downsample_rate, nxt_xyz.shape[0] // self.downsample_rate) 
+            sample_num = min(sample_num, self.max_point_num) 
+            print(f'Sampling {sample_num} control points!')
 
             sampled_cur_xyz, idx_cur = sample_farthest_points(cur_xyz.unsqueeze(0), K=sample_num)
             sampled_nxt_xyz, idx_nxt = sample_farthest_points(nxt_xyz.unsqueeze(0), K=sample_num)
@@ -436,19 +415,19 @@ class FCGS_D(nn.Module):
 
             cur_rot = cur_gaussians._rotation.detach()
             nxt_rot = nxt_gaussians._rotation.detach()
+            
             # NOTE avoid the rotation flip
-            if abs(cur_rot.mean() + nxt_rot.mean()) < abs(cur_rot.mean()):
-                nxt_rot = -nxt_rot
+            cur_rot_mean = cur_rot[0].mean()
+            nxt_rot_mean = nxt_rot[0].mean()
+
+            if torch.abs(cur_rot_mean + nxt_rot_mean) < torch.abs(cur_rot_mean):
+                nxt_rot.mul_(-1)
 
             cur_rot = (cur_rot - cur_rot.mean(dim=0)[0]) / (cur_rot.max(dim=0)[0] - cur_rot.min(dim=0)[0] + 1e-6)
             nxt_rot = (nxt_rot - nxt_rot.mean(dim=0)[0]) / (nxt_rot.max(dim=0)[0] - nxt_rot.min(dim=0)[0] + 1e-6)
 
             sampled_cur_rot = cur_rot[idx_cur].squeeze(0)
             sampled_nxt_rot = nxt_rot[idx_nxt].squeeze(0)
-            # print('sampled_cur_xyz: ', sampled_cur_xyz)
-            # print('sampled_nxt_xyz: ', sampled_nxt_xyz)
-            # print('sampled_cur_rot: ', sampled_cur_rot)
-            # print('sampled_nxt_rot: ', sampled_nxt_rot)
 
             cur_xyz_trans = self.FramePositionExtractor(sampled_cur_xyz)
             nxt_xyz_trans = self.FramePositionExtractor(sampled_nxt_xyz)
@@ -463,16 +442,13 @@ class FCGS_D(nn.Module):
 
             motion = self.Combiner(torch.cat([motion_xyz, motion_rot], dim=1).to(torch.float32))
             # print('motion: ', motion)
-            
+
             return motion, idx_cur
     
     def MotionCompensation(self, dynamicGS_type, dec_motion, cur_gaussians, nxt_gaussians_=None, idx_cur = None):
         nxt_gaussians = SimpleGaussianModel(cur_gaussians)
-        if dynamicGS_type == '3dgstream':
-            nxt_gaussians._xyz = cur_gaussians._xyz.detach() + dec_motion[:, :3]
-            nxt_gaussians._rotation = quaternion_multiply(cur_gaussians._rotation.detach(), dec_motion[:, 3:])
 
-        elif dynamicGS_type == '3dgstream_explicit':
+        if dynamicGS_type == '3dgstream_explicit':
             nxt_gaussians._xyz = cur_gaussians._xyz.detach() + dec_motion[:, :3]
             nxt_gaussians._rotation = cur_gaussians._rotation.detach() + dec_motion[:, 3:]
 
@@ -495,16 +471,18 @@ class FCGS_D(nn.Module):
             dec_motion_expanded = dec_motion * softmax_dists
             # plot_hist(dec_motion_expanded, title='dec_motion_expanded', bins=100, range=(-0.5, 0.5), save_path='./dec_motion_expanded.png')
 
-            # for every line of knn_idx, add the corresponding dec_motion
+
+            # Parallel update for all knn_idx using scatter_add
             nxt_gaussians._xyz = cur_xyz
             nxt_gaussians._rotation = cur_rot
-            for i in range(knn_idx.shape[0]):
-                nxt_gaussians._xyz[knn_idx[i]] = nxt_gaussians._xyz[knn_idx[i]] + dec_motion_expanded[i][:, :3]
-                nxt_gaussians._rotation[knn_idx[i]] = nxt_gaussians._rotation[knn_idx[i]] + dec_motion_expanded[i][:, 3:]
-                # print('i: ', i)
-                # print('knn_idx[i]: ', knn_idx[i])
-                # print('dec_motion_expanded[i]: ', dec_motion_expanded[i].shape)
-                # print('nxt_gaussians._xyz[knn_idx[i]]: ', nxt_gaussians._xyz[knn_idx[i]].shape)
+            # knn_idx: [sample_num, knn_num], dec_motion_expanded: [sample_num, knn_num, motion_dim]
+            # Flatten indices and values for scatter_add
+            flat_idx = knn_idx.reshape(-1)  # [sample_num * knn_num]
+            xyz_update = dec_motion_expanded[:, :, :3].reshape(-1, 3)  # [sample_num * knn_num, 3]
+            rot_update = dec_motion_expanded[:, :, 3:].reshape(-1, 4)  # [sample_num * knn_num, 4]
+            # Use scatter_add to accumulate updates
+            nxt_gaussians._xyz = nxt_gaussians._xyz.scatter_add(0, flat_idx.unsqueeze(-1).expand(-1, 3), xyz_update)
+            nxt_gaussians._rotation = nxt_gaussians._rotation.scatter_add(0, flat_idx.unsqueeze(-1).expand(-1, 4), rot_update)
 
         return nxt_gaussians
 
@@ -538,7 +516,6 @@ class FCGS_D(nn.Module):
             self.nxt_gaussians = self.read_gaussian_file(args.next_3dgs, sh_degree=3)
         self.scene = Scene(args) 
         self.viewpoint_stack = None
-        self.MotionEstimatorSetup(args.dynamicGS_type, args.motion_estimator_path)
     
     def buffer_loading(self, args, cur_gaussians, nxt_gaussians=None):
         self.cur_gaussians = cur_gaussians
@@ -556,11 +533,13 @@ class FCGS_D(nn.Module):
             gaussians.load_ply(file_path)
         return gaussians
 
-    def compress(self, cur_gaussians_path, motion_estimator_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_bit_path = 'mask.b', dynamicGS_type='3dgstream', nxt_gaussians_path=None, use_buffer = False, buffer_gaussian = None, add_position_noise=False):
-        
+    def compress(self, cur_gaussians_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_bit_path = 'mask.b', dynamicGS_type='3dgstream', nxt_gaussians_path=None, use_buffer = False, buffer_gaussian = None, add_position_noise=False):
+        start_time = time.time()
         cur_gaussians = self.read_gaussian_file(cur_gaussians_path) if not use_buffer else buffer_gaussian
         nxt_gaussians = self.read_gaussian_file(nxt_gaussians_path) if nxt_gaussians_path is not None else None
-        self.MotionEstimatorSetup(dynamicGS_type, motion_estimator_path) # useless
+
+        print(f'Loading Gaussian model took {time.time() - start_time:.2f} seconds')
+        start_time = time.time()
 
         if add_position_noise:
             noise = torch.randn_like(cur_gaussians._xyz) * 0.5
@@ -573,8 +552,10 @@ class FCGS_D(nn.Module):
         extracted_features = self.GaussianFeatureExtractor(cur_fea)
         ctx_params_motion = position_features + extracted_features
         
+        torch.cuda.synchronize()
+        start_time = time.time()
         est_motion, idx_cur = self.MotionEstimation(dynamicGS_type, cur_gaussians, nxt_gaussians)
-        
+
         y_motion = self.MotionEncoder(est_motion)
         y_hat_motion = self.quantize(y_motion, Q=self.Q_y, train_flag=False)
 
@@ -589,32 +570,27 @@ class FCGS_D(nn.Module):
         std_motion = F.softplus(std_motion) + 1e-6
         mean_motion = mean_motion.contiguous()
 
-        plot_hist(est_motion, save_path=y_hat_bit_path.replace('.b', '_est_motion.png'), title='est_motion', range=(-0.3, 0.3), bins=100)
-        # print('est_motion: ', est_motion, est_motion.max(), est_motion.min())
-        # print('y_motion: ', y_motion)  
-        # print('y_hat_motion: ', y_hat_motion, y_hat_motion.sum())
-        # print('z_hat_motion: ', z_hat_motion)
-
-        # dec_motion = self.MotionDecoder(y_hat_motion) # [1, motion_dim, N_m]
-        # print('dec_motion: ', dec_motion, dec_motion.max(), dec_motion.min(), dec_motion.sum(dim=1))
-        # print('mse: ', F.mse_loss(dec_motion, est_motion))
-
         bits_motion = encoder_gaussian_chunk(y_hat_motion, mean_motion.contiguous(), std_motion, self.Q_y, y_hat_bit_path, chunk_size=100000)
         bits_prior_motion = encoder_factorized_chunk(z_hat_motion, self.EntropyFactorizedMotion._logits_cumulative, self.Q_z, z_hat_bit_path, chunk_size=10000)
+        torch.cuda.synchronize()
+        compression_time = time.time() - start_time
 
         return {
             'bits_motion': bits_motion / bit_to_MB,
             'bits_prior_motion': bits_prior_motion / bit_to_MB,
-        }
+            'bits_total': (bits_motion + bits_prior_motion) / bit_to_MB,
+        }, compression_time
 
-    def decompress(self, cur_gaussians_path, y_hat_bit_path, z_hat_bit_path, mask_bit_path, dynamicGS_type='3dgstream'):
-        
-        cur_gaussians = self.read_gaussian_file(cur_gaussians_path)
+    def decompress(self, cur_gaussians_path, y_hat_bit_path, z_hat_bit_path, mask_bit_path, dynamicGS_type='3dgstream', buffer_gaussian=None):
 
-        cur_xyz, cur_fea, N_gaussian = GaussianParameterPack(self.cur_gaussians)
+        cur_gaussians = buffer_gaussian if buffer_gaussian is not None else self.read_gaussian_file(cur_gaussians_path)
+
+        torch.cuda.synchronize()
+        start_time = time.time()
+        cur_xyz, cur_fea, N_gaussian = GaussianParameterPack(cur_gaussians)
 
         if dynamicGS_type == 'control_point':
-            sampled_num = N_gaussian // self.downsample_rate
+            sampled_num = min(N_gaussian // self.downsample_rate, self.max_point_num)
             sampled_cur_xyz, idx_cur = sample_farthest_points(cur_xyz.unsqueeze(0), K=sampled_num)
         else :
             sampled_num = N_gaussian
@@ -646,6 +622,8 @@ class FCGS_D(nn.Module):
         residual_ctx_params = extracted_features
         residual_feature = self.ResidualGenerator(residual_ctx_params)
         nxt_gaussians = self.Refinement(nxt_gaussians, residual_feature=residual_feature)
+        torch.cuda.synchronize()
+        decompression_time = time.time() - start_time
 
         # print('y_hat_motion: ', y_hat_motion, y_hat_motion.sum())
         # print('dec_motion: ', dec_motion)
@@ -657,7 +635,7 @@ class FCGS_D(nn.Module):
         # print('motion_xyz: ', motion_xyz.mean(), motion_xyz.std())
         # print('motion_xyz: ', motion_xyz.sum())
 
-        return nxt_gaussians
+        return nxt_gaussians, decompression_time
 
     def forward(self):
         

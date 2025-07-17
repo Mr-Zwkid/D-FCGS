@@ -13,8 +13,6 @@ from utils.loss_utils import l1_loss, ssim
 import tqdm
 from arguments import ModelParams, PipelineParams, OptimizationParams
 
-
-
 def read_gaussian_file(file_path, sh_degree = 3):
     with torch.no_grad():
         gaussians = GaussianModel(sh_degree)
@@ -23,7 +21,6 @@ def read_gaussian_file(file_path, sh_degree = 3):
 
 def validate(gaussians, scene, args, save_path='', save_img=False, logger=None):
         
-    
     lpips_fn = lpips.LPIPS(net='vgg').to('cuda')
     views = scene.getTestCameras()
     # views = scene.getTrainCameras()
@@ -73,7 +70,6 @@ def validate(gaussians, scene, args, save_path='', save_img=False, logger=None):
         final_data = {'average': data, 'details': details}
 
         json.dump(final_data, f, indent=True)
-
 
 if __name__ == "__main__":
 
