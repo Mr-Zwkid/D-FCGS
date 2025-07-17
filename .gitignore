@@ -11,3 +11,5 @@ __pycache__
 data_video
 
 3DGStream/ntc/*.pth
+init_gs
+
