@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 from torch.autograd import Function
 from torch.cuda.amp import custom_bwd, custom_fwd
-import _gridcreater as gc
-import _gridencoder as ge
-import _freqencoder as fe
+# import _gridcreater as gc
+# import _gridencoder as ge
+# import _freqencoder as fe
 
 def normalize_xyz(xyz_orig, K=3, means=None, stds=None):
     if means == None:

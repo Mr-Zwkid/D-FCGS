@@ -19,7 +19,7 @@ class Logger:
         timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
         
         if name is None:
-            name = "train"
+            name = "D-FCGS"
         
         self.log_file = os.path.join(log_dir, f"{name}_{timestamp}.log")
         
@@ -40,7 +40,7 @@ class Logger:
         console_handler.setLevel(log_level)
         
         # Set formatter
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter('\033[92m%(asctime)s - %(name)s - %(levelname)s\033[0m - %(message)s')
         file_handler.setFormatter(formatter)
         console_handler.setFormatter(formatter)
         
@@ -55,6 +55,9 @@ class Logger:
             'mask_loss': [],
             'total_loss': []
         }
+
+        # For saving_general information
+        self.general_info = {}
         
         # Record start time
         self.start_time = time.time()
@@ -134,3 +137,22 @@ class Logger:
     def log_info(self, message):
         """Log custom info messages"""
         self.logger.info(message)
+
+    def create_list_for_logging(self, name):
+        """Create a list for logging"""
+        if name not in self.general_info:
+            self.general_info[name] = []
+    
+    def add_to_list(self, name, value):
+        """Add a value to a list for logging"""
+        if name in self.general_info:
+            self.general_info[name].append(value)
+        else:
+            self.logger.warning(f"List '{name}' not found in general info.")
+
+    def save_general_info(self):
+        """Save general information to a JSON file"""
+        info_file = os.path.join(self.log_dir, "general_info.json")
+        with open(info_file, 'w') as f:
+            json.dump(self.general_info, f, indent=2)
+        self.logger.info(f"General information saved to {info_file}")
