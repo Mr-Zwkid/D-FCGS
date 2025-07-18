@@ -59,22 +59,27 @@ def get_colmap_single(scene_path, offset, subdir='inputs'):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Extract and reorganize frames from multi-camera videos.')
-    parser.add_argument('--base_dir', type=str, required=True, help='Base directory containing multi-camera videos.')
+    parser.add_argument('--dataset_dir', type=str, required=True, help='Base directory containing multi-camera videos.')
+    parser.add_argument('--scene_list', nargs='*', default=None, help='List of scene names to process.')
+
     parser.add_argument('--scale_factor', type=int, default=2, help='Scale factor for resizing frames (e.g., 2 for half size).')
     parser.add_argument('--start_frame', type=int, default=None, help='Start frame index (inclusive).')
     parser.add_argument('--end_frame', type=int, default=None, help='End frame index (inclusive).')
     parser.add_argument('--subdir', type=str, default='inputs', help='Subdirectory to place camera images in each frame folder.')
     args = parser.parse_args()
 
-    base_dir = args.base_dir
+    dataset_dir = args.dataset_dir
     scale_factor = args.scale_factor
     start_frame = args.start_frame
     end_frame = args.end_frame
     subdir = args.subdir
 
-    # 1. Extract frames and reorganize them
-    extract_and_reorganize_frames(base_dir, scale_factor, start_frame, end_frame, subdir)
+    for scene in args.scene_list:
+        base_dir = os.path.join(dataset_dir, scene)
+        
+        # 1. Extract frames and reorganize them
+        extract_and_reorganize_frames(base_dir, scale_factor, start_frame, end_frame, subdir)
 
-    # 2. Colmap processing
-    for i in tqdm(range(start_frame, end_frame + 1), desc='Processing frames'):
-        get_colmap_single(base_dir, i, subdir=subdir)
+        # 2. Colmap processing
+        for i in tqdm(range(start_frame, end_frame + 1), desc='Processing frames'):
+            get_colmap_single(base_dir, i, subdir=subdir)

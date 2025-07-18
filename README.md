@@ -59,7 +59,7 @@ class="center">
 2. Extract Frames and Colmap Process
    Assume the path to multi-view videos of one scene is `data_video/Immersive/04_Truck`, use following command to derive frames and per-frame colmap results.
    ```bash
-   python data_preprocess.py --base_dir data_video/Immersive/04_Truck --start_frame 0 --end_frame 149 [--scale_factor 2]
+   python data_preprocess.py --dataset_dir data_video/Immersive --scene_list 04_Truck --start_frame 0 --end_frame 149 [--scale_factor 2]
    # frame range: [start_frame, end_frame]
    ```
 
@@ -145,6 +145,9 @@ We put one checkpoint into `ckpt/model.pth`. You can test on your GS point cloud
 ```python
    python run_dfcgs_infer.py
 ```
+
+Calculate the metrics
+```python summerize.py --base_dir outputs/test --dataset_path ./data_video --dataset Immersive --scene_list 04_Truck --start_frame 0 --end_frame 149 --gof_size 10```
 
 ## 04 Train
 
