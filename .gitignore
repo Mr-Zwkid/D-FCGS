@@ -1,5 +1,4 @@
-outputs
-output_gt
+output*
 ply
 submodules
 res
@@ -9,6 +8,7 @@ rebuttal
 __pycache__
 
 data_video
+data_ff
 
 3DGStream/ntc/*.pth
 init_gs

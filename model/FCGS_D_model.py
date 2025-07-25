@@ -522,7 +522,6 @@ class FCGS_D(nn.Module):
         self.nxt_gaussians = self.read_gaussian_file(args.next_3dgs, sh_degree=3)
         self.scene = Scene(args) 
         self.viewpoint_stack = None
-        self.MotionEstimatorSetup(args.dynamicGS_type, args.motion_estimator_path)
 
     def buffer_capture(self):
         return self.buffer

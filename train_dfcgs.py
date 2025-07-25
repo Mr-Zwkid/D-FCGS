@@ -64,7 +64,13 @@ def path_match(pattern):
 def train_frame_setup(args, frame_cur, frame_next=None):
     
     if args.dynamicGS_type == '3dgstream_explicit' or args.dynamicGS_type == '3dgstream_implicit' or  args.dynamicGS_type == 'control_point':
-        base_dir = f'{args.dataset_path}/{args.dataset}/{args.scene_name}'
+        for dataset in args.dataset_list:
+            base_dir = f'{args.dataset_path}/{dataset}/{args.scene_name}'
+            if os.path.exists(base_dir):
+                break
+        else:
+            raise FileNotFoundError(f"Dataset {args.dataset_list} not found in {args.dataset_path}/{args.scene_name}")
+        
         if frame_cur >= 0:
             init_pattern = f'{base_dir}/frame{frame_cur:06d}/gs/point_cloud/iteration_*/point_cloud.ply'
             args.init_3dgs = path_match(init_pattern)
@@ -102,14 +108,14 @@ def train_frame_gof(args):
     for i in pbar:
         # set frame/scene to train
         with torch.no_grad():
-            if args.use_scenes and i % args.gof_size == 0: # change scene and select new start frame
+            if i % args.gof_size == 0: # change scene and select new start frame
                 args.scene_name = args.scene_list[torch.randint(0, len(args.scene_list), (1,)).item()] # randomly select a scene
                 frame_cur = torch.randint(args.frame_start, args.frame_end, (1,)).item() // args.gof_size * args.gof_size # randomly select a start frame, which is a multiple of args.gof_size
                 frame_next = frame_cur + 1
                 train_frame_setup(args, frame_cur, frame_next)
                 model.refresh_settings(args)
             else: # step forward and update buffer gaussians
-                frame_cur = min(frame_cur + 1, args.frame_end - 2)
+                frame_cur = min(frame_cur + 1, args.frame_end - 1)
                 frame_next = frame_cur + 1
                 train_frame_setup(args, frame_cur, frame_next)
                 model.buffer_loading(args, buffer_gaussian)
@@ -143,7 +149,7 @@ def train_frame_gof(args):
         })
 
         # save checkpoint
-        if args.checkpoint is not None and i % args.checkpoint == 0:
+        if args.checkpoint_iteration is not None and i % args.checkpoint_iteration == 0:
             model_path = os.path.join(args.model_path.split('frame')[0], f'checkpoint_{i}.pth')
             logger.log_info(f"Saving checkpoint to {model_path}")
             os.makedirs(args.model_path, exist_ok=True)

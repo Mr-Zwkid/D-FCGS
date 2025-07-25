@@ -142,7 +142,7 @@ class="center">
 
 ## 03 Inference
 We put one checkpoint into `ckpt/model.pth`. You can test on your GS point cloud sequences as follows. Remeber to change `dataset_path`, `dataset_name`, `scene_list`  according to your need.
-```python
+```bash
    python run_dfcgs_infer.py
 ```
 
@@ -150,6 +150,10 @@ Calculate the metrics
 ```python summerize.py --base_dir outputs/test --dataset_path ./data_video --dataset Immersive --scene_list 04_Truck --start_frame 0 --end_frame 149 --gof_size 10```
 
 ## 04 Train
+Use the Gaussian Point Gloud Sequences to train your new model.
+```bash
+   python run_dfcgs_train.py
+```
 
 
 
