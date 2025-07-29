@@ -147,7 +147,9 @@ We put one checkpoint into `ckpt/model.pth`. You can test on your GS point cloud
 ```
 
 Calculate the metrics
-```python summerize.py --base_dir outputs/test --dataset_path ./data_video --dataset Immersive --scene_list 04_Truck --start_frame 0 --end_frame 149 --gof_size 10```
+```bash
+   python summerize.py --base_dir outputs/test --dataset_path ./data_video --dataset Immersive --scene_list 04_Truck --start_frame 0 --end_frame 149 --gof_size 10
+```
 
 ## 04 Train
 Use the Gaussian Point Gloud Sequences to train your new model.
