@@ -28,7 +28,7 @@ class="center">
 
 1. clone our code
    ```bash
-   git clone https://github.com/Mr-Zwkid/FCGS-D.git --recursive  
+   git clone https://github.com/Mr-Zwkid/D-FCGS.git --recursive  
    ```
 
 2. create conda env and enter it
