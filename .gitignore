@@ -1,11 +1,13 @@
+
 output*
-ply
+*.ply
 submodules
 res
 3DGStream-Res
 rebuttal
 *.pyc
 __pycache__
+miscs
 
 data_video
 data_ff

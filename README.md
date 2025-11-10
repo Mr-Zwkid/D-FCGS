@@ -1,27 +1,25 @@
-# [ARXIV'25] D-FCGS
+# [AAAI-26] D-FCGS
 Official Pytorch Implementation of **D-FCGS: Feedforward Compression of Dynamic Gaussian Splatting for Free-Viewpoint Videos**.
 
-[Wenkang Zhang](https://mr-zwkid.github.io/), [Yan Zhao](https://github.com/adminasmi), [Qiang Wang](https://scholar.google.com/citations?user=17E9fdUAAAAJ&hl=en), [Li Song](https://medialab.sjtu.edu.cn/author/li-song/), [Zhengxue Cheng](https://medialab.sjtu.edu.cn/author/zhengxue-cheng/)
+[Wenkang Zhang](https://mr-zwkid.github.io/), [Yan Zhao](https://github.com/adminasmi), [Qiang Wang](https://scholar.google.com/citations?user=17E9fdUAAAAJ&hl=en), [Zhixin Xu](https://icci.sjtu.edu.cn/en/faculty/view/99), [Li Song](https://medialab.sjtu.edu.cn/author/li-song/),  [Zhengxue Cheng*](https://medialab.sjtu.edu.cn/author/zhengxue-cheng/)
 
-[![arXiv](https://img.shields.io/badge/Arxiv-2507.05859-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2507.05859) [![Home Page](https://img.shields.io/badge/Project-Website-green.svg)](#) [![Code](https://img.shields.io/badge/Github-Code-blue.svg?logo=github)](https://github.com/Mr-Zwkid/FCGS-D) 
+[![arXiv](https://img.shields.io/badge/Arxiv-2507.05859-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2507.05859) [![Code](https://img.shields.io/badge/Github-Code-blue.svg?logo=github)](https://github.com/Mr-Zwkid/FCGS-D) 
 
-
-<p align="left">
-<img src="assets/teaser.png" width=100%
+<p align="center">
+<img src="assets/teaser.png" width=60%
 class="center">
 </p>
 
+**Left:** Illustration of differences between previous optimization-based methods and our D-FCGS. **Right:** R-D curve and storage size comparison on N3V dataset.
 
 
-Left: Existing GS-based methods for FVV often couple scene reconstruction with compression and requireper scene optimization, resulting in reduced generalizability. In contrast,our D-FCGS decouples these stages with a single feedforward
- pass that compresses inter-frame motion in Gaussian frames,enabling efficient compression and storage for FFV. Right: Despite
- being optimization-free, D-FCGS achieves competitive rate-distortion performance compared to optimization-based methods.
-
-## 00 Method
+## 00 Overview
 <p align="left">
 <img src="assets/method.png" width=100%
 class="center">
 </p>
+
+**Overview of D-FCGS framework.** Our feedforward pipeline processes sequential Gaussian frames in GoF through three stages: (1) sparse motion extraction, (2) feedforward motion compression, and (3) motion compensation and refinement. Once trained with rate-distortion loss, D-FCGS can infer on brand-new GS sequences in a zero-shot manner.
 
 
 ## 01 Installation
@@ -52,9 +50,11 @@ class="center">
 ## 02 Dataset Preprocess
 1. Multiview Video Datasets
    - [Neural 3D Video](https://github.com/facebookresearch/Neural_3D_Video/releases/tag/v1.0)
-   - [Meetroom](https://www.modelscope.cn/datasets/DAMOXR/dynamic_nerf_meeting_room_dataset/files)
+   - [MeetRoom](https://www.modelscope.cn/datasets/DAMOXR/dynamic_nerf_meeting_room_dataset/files)
    - [Google Immersive](https://github.com/augmentedperception/deepview_video_dataset?tab=readme-ov-file)
    - [WideRange4D](https://huggingface.co/datasets/Gen-Verse/WideRange4D)
+   - [VRU-Basketball](https://huggingface.co/datasets/BestWJH/VRU_Basketball/tree/main)
+   - [Self-Cap](https://zju3dv.github.io/longvolcap/) (need application for access)
 
 2. Extract Frames and Colmap Process
    Assume the path to multi-view videos of one scene is `data_video/Immersive/04_Truck`, use following command to derive frames and per-frame colmap results.
@@ -63,7 +63,7 @@ class="center">
    # frame range: [start_frame, end_frame]
    ```
 
-3. Derive Inititial Gaussian Frame
+3. Derive Initial Gaussian Frame
    ```bash
    python derive_init_gs.py --dataset_dir ./data_video/Immersive --scene_list 04_Truck
    ```
@@ -74,7 +74,7 @@ class="center">
    # frame range: [start_frame, end_frame]
    ```
 
-5. The dataset of one scene `data_video/Immersive/04_Truck` ends like:
+5. The dataset of one scene `data_video/Immersive/04_Truck` ends up like:
 
    ```
    04_Truck/
@@ -143,7 +143,7 @@ class="center">
 ## 03 Inference
 We put one checkpoint into `ckpt/model.pth`. You can test on your GS point cloud sequences as follows. Remeber to change `dataset_path`, `dataset_name`, `scene_list`  according to your need.
 ```bash
-   python run_dfcgs_infer.py
+   python scripts/run_dfcgs_infer.py
 ```
 
 Calculate the metrics
@@ -154,7 +154,7 @@ Calculate the metrics
 ## 04 Train
 Use the Gaussian Point Gloud Sequences to train your new model.
 ```bash
-   python run_dfcgs_train.py
+   python scripts/run_dfcgs_train.py
 ```
 
 

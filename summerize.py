@@ -115,5 +115,6 @@ def main():
         overall_avg_path = os.path.join(base_dir, f'{dataset}_all_scenes_average.csv')
         avg_df.to_csv(overall_avg_path, index=False)
         print(f'Saved overall average table to {overall_avg_path}')
+
 if __name__ == "__main__":
     main()
