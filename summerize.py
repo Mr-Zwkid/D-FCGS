@@ -66,14 +66,26 @@ def main():
                 ssim = cur['average']['SSIM']
                 ssim_list.append(ssim)
                 
+            try:
+                gt_path_psnr = f'{gt_dir}/frame{frame:06d}/gs/rendering_info.json'
+                with open(gt_path_psnr, 'r') as f:
+                    gt = json.load(f)
+                    psnr_gt = gt['average']['PSNR']
+                    psnr_gt_list.append(psnr_gt)
+                    ssim_gt = gt['average']['SSIM']
+                    ssim_gt_list.append(ssim_gt)
+            except Exception as e:
+                print(f"Error reading {gt_path_psnr}: {e}")
 
-            gt_path_psnr = f'{gt_dir}/frame{frame:06d}/gs/rendering_info.json'
-            with open(gt_path_psnr, 'r') as f:
-                gt = json.load(f)
-                psnr_gt = gt['average']['PSNR']
-                psnr_gt_list.append(psnr_gt)
-                ssim_gt = gt['average']['SSIM']
-                ssim_gt_list.append(ssim_gt)
+                print('Using alternative ground truth data source from 3DGStream.')
+
+                gt_path_psnr = f'{gt_dir}/frame{frame:06d}/gs/results.json'
+                with open(gt_path_psnr, 'r') as f:
+                    gt = json.load(f)
+                    psnr_gt = gt['stage1/psnr_0']
+                    psnr_gt_list.append(psnr_gt)
+                    ssim_gt = None
+                    ssim_gt_list.append(ssim_gt)
 
             gt_path_size = f'{gt_dir}/frame{frame:06d}/gs/NTC.pth'
             gt_size = os.path.getsize(gt_path_size) / 1024 / 1024  # Convert to MB

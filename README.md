@@ -40,7 +40,7 @@ class="center">
    conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
    pip install torch==2.2.0+cu118 torchvision==0.17.0+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
    pip install pytorch3d==0.7.8+pt2.2.0cu118 --extra-index-url https://miropsota.github.io/torch_packages_builder 
-   pip install lpips tqdm plyfile commentjson opencv-python torchviz kornia numpy==1.26.4 matplotlib
+   pip install lpips tqdm plyfile commentjson opencv-python torchviz kornia numpy==1.26.4 matplotlib pandas
    conda install -c conda-forge colmap
    pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch --no-build-isolation
    pip install submodules/simple-knn --no-build-isolation 
@@ -148,7 +148,10 @@ We put one checkpoint into `ckpt/model.pth`. You can test on your GS point cloud
 ```
 
 Calculate the metrics
+
+
 ```bash
+   python scripts/run_rendering_cal.py # optional, you can use this to calculate gt metrics, otherwise use the original metrics(only PSNR) from 3DGStream. Remember to change the configs within this script.
    python summerize.py --base_dir outputs/test --dataset_path ./data_video --dataset Immersive --scene_list 04_Truck --start_frame 0 --end_frame 149 --gof_size 10
 ```
 

@@ -2,15 +2,18 @@
 This script runs the validation process for a specific dataset and scene, iterating through frames and executing a validation script for each frame.
 '''
 
+import sys
+sys.path.append('.')
+
 import os
-from train_dfcgs import path_match
+from train_fcgsd import path_match
 
 dataset_path = './data_video'
-dataset = 'Immersive'
-scene_list = ['04_Truck']
+dataset = 'N3V'
+scene_list = ['flame_steak']
 
 for scene in scene_list:
-    for frame in range(0, 10):
+    for frame in range(0, 300):
         ply_path = path_match(f'{dataset_path}/{dataset}/{scene}/frame{frame:06d}/gs/point_cloud/iteration_*/point_cloud.ply')
         source_path = f'{dataset_path}/{dataset}/{scene}/frame{frame:06d}'
         save_path = f'{dataset_path}/{dataset}/{scene}/frame{frame:06d}/gs'
