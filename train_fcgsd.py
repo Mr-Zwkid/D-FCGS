@@ -9,7 +9,7 @@ import json
 import torchvision
 import time
 from scene import GaussianModel, Scene
-from model.FCGS_D_model import FCGS_D
+from model.DFCGS_model import FCGS_D
 
 from gaussian_renderer import render
 import lpips
@@ -84,6 +84,30 @@ def train_frame_setup(args, frame_cur, frame_next=None):
     else:
         raise ValueError(f"Unknown dynamicGS_type: {args.dynamicGS_type}")
 
+def train_frame(args):
+    logger = args.logger
+
+    for frame in range(args.frame_start, args.frame_end):
+        train_frame_setup(args, frame)
+
+        if args.conduct_training:
+            # logger.logger.info(f"\n[Training frame {frame}]")
+            print(f"\n[Training frame {frame}]")
+            train(args)
+
+        if args.conduct_compress:
+            logger.logger.info(f"\n[Compressing frame {frame}]")
+            print(f"\n[Compressing frame {frame}]")
+            conduct_compress(args, os.path.join(args.model_path, 'model.pth'), args.init_3dgs, args.motion_estimator_path, os.path.join(args.model_path, 'motion.b'), os.path.join(args.model_path, 'motion_prior.b'), os.path.join(args.model_path, 'mask.b'))
+        
+        if args.conduct_decompress:
+            logger.logger.info(f"\n[Decompressing frame {frame}]")
+            print(f"\n[Decompressing frame {frame}]")
+            conduct_decompress(args, os.path.join(args.model_path, 'model.pth'), args.init_3dgs, os.path.join(args.model_path, 'motion.b'), os.path.join(args.model_path, 'motion_prior.b'), os.path.join(args.model_path, 'mask.b'), os.path.join(args.model_path, 'output.ply'))
+        
+        logger.logger.info('\n')
+
+# Final Version for Training
 def train_frame_gof(args):
     logger = args.logger
     logger.log_info("Starting training within GoF...")
@@ -108,14 +132,14 @@ def train_frame_gof(args):
     for i in pbar:
         # set frame/scene to train
         with torch.no_grad():
-            if i % args.gof_size == 0: # change scene and select new start frame
+            if args.use_scenes and i % args.gof_size == 0: # change scene and select new start frame
                 args.scene_name = args.scene_list[torch.randint(0, len(args.scene_list), (1,)).item()] # randomly select a scene
                 frame_cur = torch.randint(args.frame_start, args.frame_end, (1,)).item() // args.gof_size * args.gof_size # randomly select a start frame, which is a multiple of args.gof_size
                 frame_next = frame_cur + 1
                 train_frame_setup(args, frame_cur, frame_next)
                 model.refresh_settings(args)
             else: # step forward and update buffer gaussians
-                frame_cur = min(frame_cur + 1, args.frame_end - 1)
+                frame_cur = min(frame_cur + 1, args.frame_end - 2)
                 frame_next = frame_cur + 1
                 train_frame_setup(args, frame_cur, frame_next)
                 model.buffer_loading(args, buffer_gaussian)
@@ -150,26 +174,283 @@ def train_frame_gof(args):
 
         # save checkpoint
         if args.checkpoint_iteration is not None and i % args.checkpoint_iteration == 0:
-            model_path = os.path.join(args.model_path.split('frame')[0], f'checkpoint_{i}.pth')
+            model_path = os.path.join(args.model_path, args.scene_name, f'checkpoint_{i}.pth')
             logger.log_info(f"Saving checkpoint to {model_path}")
-            os.makedirs(args.model_path, exist_ok=True)
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
             torch.save(model.state_dict(), model_path)
-            logger.log_checkpoint(model_path)
 
         # update buffer frame
         with torch.no_grad():
             buffer_gaussian = model.buffer_capture()
 
+    model_path = os.path.join(args.model_path, args.scene_name, 'model.pth')
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    torch.save(model.state_dict(), model_path)
+    logger.log_info(f"Saved final model to {model_path}")
+
+    loss_curve_path = os.path.join(args.model_path, args.scene_name, 'loss_curve.png')
+    plot_loss_curve(render_loss, size_loss, total_loss, loss_curve_path)
+    logger.log_info(f"Saved loss curves to {loss_curve_path}")
+
+    logger.log_training_complete()
+
+def train_frame_jointly_stepping(args):
+
+    logger = args.logger
+    logger.logger.info("Starting joint training with stepping...")
+    
+    model = FCGS_D(args).cuda()
+
+    if args.checkpoint_path is not None:
+        model.load_state_dict(torch.load(args.checkpoint_path))
+        logger.logger.info(f"Loaded checkpoint from {args.checkpoint_path}")
+
+    model.train()
+    # model.eval()
+
+    render_loss = []
+    size_loss = []
+    mask_loss = []
+    total_loss = []
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    pbar = tqdm.tqdm(range(args.iterations), desc="Training", unit="iteration")
+
+    # 在开始前清理一次GPU缓存
+    torch.cuda.empty_cache()
+    
+    for i in pbar:
+        if args.use_scenes and i % 10 == 0:
+            args.scene_name = args.scene_list[torch.randint(0, len(args.scene_list), (1,)).item()]
+            print(f"Scene: {args.scene_name}")
+        
+        # logger.logger.info(f"Iteration {i}: Selected frame_cur={frame_cur}, frame_next={frame_next}")
+        
+        # 减小切换频率
+        if i % 10 == 0:
+            # 随机选取一个 frame，范围从 args.frame_start (包含) 到 args.frame_end (不包含)
+            # frame_cur = i % args.frame_end // args.gof_size * args.gof_size
+            frame_cur = torch.randint(args.frame_start, args.frame_end - 1, (1,)).item()
+            frame_cur = frame_cur // args.gof_size * args.gof_size if not args.random_init else frame_cur
+            frame_next = torch.randint(frame_cur + 1, min(args.frame_end, frame_cur+args.gof_size), (1,)).item()
+            # frame_next = frame_cur + 1 + i % args.gof_size
+            print(f"Frame: {frame_cur} -> {frame_next}")
+            train_frame_setup(args, frame_cur, frame_next)
+
+            model.refresh_settings(args)
+
+        loss_render, size, loss_mask, loss_motion = model()
+        loss_size = size
+
+        lambda_size = args.lambda_size if i > args.iterations // 3 else 0.0
+        lambda_motion = 0.01 if i > args.iterations // 3 else 0.0
+        # lambda_size = args.lambda_size
+        loss = loss_render + loss_size * lambda_size + loss_mask * 0.01 + loss_motion *lambda_motion
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        torch.cuda.empty_cache()
+
+        render_loss.append(loss_render.item())
+        size_loss.append(loss_size.item())
+        mask_loss.append(loss_mask.item())
+        total_loss.append(loss.item())
+
+        # 日志记录
+        logger.log_iteration(i, {
+            'loss_render': loss_render.item() if hasattr(loss_render, 'item') else loss_render,
+            'loss_size': loss_size.item() if hasattr(loss_size, 'item') else loss_size,
+            'loss_mask': loss_mask.item() if hasattr(loss_mask, 'item') else loss_mask,
+            'loss_motion': loss_motion.item() if hasattr(loss_motion, 'item') else loss_motion,
+            'total_loss': loss.item() if hasattr(loss, 'item') else loss
+        }, additional_info={'frame_cur': frame_cur, 'frame_next': frame_next})
+
+        pbar.set_postfix({
+            'loss_render': loss_render.item() if hasattr(loss_render, 'item') else loss_render,
+            'loss_size': loss_size.item() if hasattr(loss_size, 'item') else loss_size,
+            'loss_mask': loss_mask.item() if hasattr(loss_mask, 'item') else loss_mask,
+            'loss_motion': loss_motion.item() if hasattr(loss_motion, 'item') else loss_motion,
+            'total_loss': loss.item() if hasattr(loss, 'item') else loss
+        })
+
+        if args.checkpoint is not None and int(i) == args.checkpoint:
+            model_path = os.path.join(args.model_path.split('frame')[0], f'checkpoint_{args.checkpoint}.pth')
+            logger.logger.info(f"Saving checkpoint to {model_path}")
+            os.makedirs(args.model_path, exist_ok=True)
+            torch.save(model.state_dict(), model_path)
+            logger.log_checkpoint(model_path)
+
+    model.buffer = None
     args.model_path = args.model_path.split('frame')[0]
     model_path = os.path.join(args.model_path, 'model.pth')
     os.makedirs(args.model_path, exist_ok=True)
     torch.save(model.state_dict(), model_path)
-    logger.log_info(f"Saved final model to {model_path}")
+    logger.logger.info(f"Saved final model to {model_path}")
 
     loss_curve_path = os.path.join(args.model_path, 'loss_curve.png')
     plot_loss_curve(render_loss, size_loss, total_loss, loss_curve_path)
-    logger.log_info(f"Saved loss curves to {loss_curve_path}")
+    logger.logger.info(f"Saved loss curves to {loss_curve_path}")
 
+    logger.log_training_complete()
+
+def train_frame_jointly(args):
+    # 创建Logger
+    logger = args.logger
+    
+    model = FCGS_D(args).cuda()
+
+    if args.checkpoint_path is not None:
+        model.load_state_dict(torch.load(args.checkpoint_path))
+        logger.logger.info(f"Loaded checkpoint from {args.checkpoint_path}")
+
+    model.train()
+
+    render_loss = []
+    size_loss = []
+    mask_loss = []
+    total_loss = []
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    pbar = tqdm.tqdm(range(args.iterations), desc="Training", unit="iteration")
+    
+    # 在开始前清理一次GPU缓存
+    torch.cuda.empty_cache()
+    time_ttl = 0
+    for i in pbar:
+        if args.use_scenes and i % 10 == 0:
+            # 场景切换前先清理缓存
+            torch.cuda.empty_cache()
+            args.scene_name = args.scene_list[torch.randint(0, len(args.scene_list), (1,)).item()]
+            print(f"Scene: {args.scene_name}")
+
+        # 减小切换频率
+        if i % 10 == 0:
+            # 随机选取一个 frame，范围从 args.frame_start (包含) 到 args.frame_end (不包含)
+            frame = torch.randint(args.frame_start, args.frame_end, (1,)).item()
+            train_frame_setup(args, frame)
+            
+            # 此处是时间瓶颈！读写ply比较耗时！
+            start_time = time.time()
+            model.refresh_settings(args)
+            time_ttl += time.time() - start_time
+
+
+        loss_render, size, loss_mask = model()
+        loss_size = size
+        
+        loss = loss_render + loss_size * args.lambda_size + loss_mask * 0.01
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        torch.cuda.empty_cache()
+
+        render_loss.append(loss_render.item())
+        size_loss.append(loss_size.item())
+        mask_loss.append(loss_mask.item())
+        total_loss.append(loss.item())
+
+        # 日志记录
+        logger.log_iteration(i, {
+            'loss_render': loss_render.item() if hasattr(loss_render, 'item') else loss_render,
+            'loss_size': loss_size.item() if hasattr(loss_size, 'item') else loss_size,
+            'loss_mask': loss_mask.item() if hasattr(loss_mask, 'item') else loss_mask,
+            'total_loss': loss.item() if hasattr(loss, 'item') else loss
+        }, additional_info={'frame': frame})
+
+        pbar.set_postfix({
+            'loss_render': loss_render.item() if hasattr(loss_render, 'item') else loss_render,
+            'loss_size': loss_size.item() if hasattr(loss_size, 'item') else loss_size,
+            'loss_mask': loss_mask.item() if hasattr(loss_mask, 'item') else loss_mask,
+            'total_loss': loss.item() if hasattr(loss, 'item') else loss
+        })
+
+        if args.checkpoint is not None and int(i) == args.checkpoint:
+            model_path = os.path.join(args.model_path.split('frame')[0], f'checkpoint_{args.checkpoint}.pth')
+            logger.logger.info(f"Saving checkpoint to {model_path}")
+            os.makedirs(args.model_path, exist_ok=True)
+            torch.save(model.state_dict(), model_path)
+            logger.log_checkpoint(model_path)
+
+    print(f"Total time: {time_ttl:.2f}s")
+
+    args.model_path = args.model_path.split('frame')[0]
+    model_path = os.path.join(args.model_path, 'model.pth')
+    os.makedirs(args.model_path, exist_ok=True)
+    torch.save(model.state_dict(), model_path)
+    logger.logger.info(f"Saved final model to {model_path}")
+    
+    loss_curve_path = os.path.join(args.model_path, 'loss_curve.png')
+    plot_loss_curve(render_loss, size_loss, total_loss, loss_curve_path)
+    logger.logger.info(f"Saved loss curves to {loss_curve_path}")
+
+    logger.log_training_complete()
+
+def train(args):
+    logger = args.logger
+    
+    logger.logger.info("Starting training...")
+
+    model = FCGS_D(args).cuda()
+    model.train()
+    model.refresh_settings(args)
+
+    render_loss = []
+    size_loss = []
+    mask_loss = []
+    total_loss = []
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    pbar = tqdm.tqdm(range(args.iterations), desc="Training", unit="iteration")
+    
+    for i in pbar:
+        loss_render, size, loss_mask = model()
+        loss_size = size
+
+        loss = loss_render + loss_size * args.lambda_size + loss_mask * 0.01
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        torch.cuda.empty_cache()
+
+        render_loss.append(loss_render.item())
+        size_loss.append(loss_size.item())
+        mask_loss.append(loss_mask.item())
+        total_loss.append(loss.item())
+
+        # 日志记录
+        logger.log_iteration(i, {
+            'loss_render': loss_render.item() if hasattr(loss_render, 'item') else loss_render,
+            'loss_size': loss_size.item() if hasattr(loss_size, 'item') else loss_size,
+            'loss_mask': loss_mask.item() if hasattr(loss_mask, 'item') else loss_mask,
+            'total_loss': loss.item() if hasattr(loss, 'item') else loss
+        })
+
+        pbar.set_postfix({
+            'loss_render': loss_render.item() if hasattr(loss_render, 'item') else loss_render,
+            'loss_size': loss_size.item() if hasattr(loss_size, 'item') else loss_size,
+            'loss_mask': loss_mask.item() if hasattr(loss_mask, 'item') else loss_mask,
+            'total_loss': loss.item() if hasattr(loss, 'item') else loss
+        })
+
+        if args.checkpoint is not None and int(i) == args.checkpoint:
+            model_path = os.path.join(args.model_path, f'checkpoint_{args.checkpoint}.pth')
+            os.makedirs(args.model_path, exist_ok=True)
+            torch.save(model.state_dict(), model_path)
+            logger.log_checkpoint(model_path)
+
+    model_path = os.path.join(args.model_path, 'model.pth')
+    os.makedirs(args.model_path, exist_ok=True)
+    torch.save(model.state_dict(), model_path)
+    logger.logger.info(f"Saved final model to {model_path}")
+    
+    loss_curve_path = os.path.join(args.model_path, 'loss_curve.png')
+    plot_loss_curve(render_loss, size_loss, total_loss, loss_curve_path)
+    logger.logger.info(f"Saved loss curves to {loss_curve_path}")
+
+    
     logger.log_training_complete()
 
 def conduct_compress_decompress_as_gof(args, frame_start, frame_end):
@@ -200,9 +481,9 @@ def conduct_compress_decompress_as_gof(args, frame_start, frame_end):
             buffer_gaussian = conduct_decompress(args, model_path, args.init_3dgs, motion_save_path, motion_prior_save_path, mask_save_path, ply_save_path)
         else:
             conduct_compress(args, model_path, args.init_3dgs, motion_save_path, motion_prior_save_path, mask_save_path, args.next_3dgs, use_buffer=True, buffer_gaussian=buffer_gaussian)
-            conduct_decompress(args, model_path, args.init_3dgs, motion_save_path, motion_prior_save_path, mask_save_path, ply_save_path, buffer_gaussian=buffer_gaussian)
-    logger.save_general_info()
-            
+            conduct_decompress(args, model_path, args.init_3dgs, motion_save_path, motion_prior_save_path, mask_save_path, ply_save_path, use_buffer=True)
+    logger.save_general_info() 
+
 def conduct_compress(args, model_path, init_3dgs_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_path = 'mask.b', nxt_gaussians_path=None, use_buffer=False, buffer_gaussian=None):
     logger = args.logger
     logger.log_info(f"Model from {model_path}")
@@ -224,7 +505,7 @@ def conduct_compress(args, model_path, init_3dgs_path, y_hat_bit_path = 'motion.
         
         logger.log_info(f'Compression Result: {res}') 
 
-def conduct_decompress(args, model_path, init_3dgs_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_path = 'mask.b', save_ply_path = './output.ply', buffer_gaussian=None):
+def conduct_decompress(args, model_path, init_3dgs_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_path = 'mask.b', save_ply_path = './output.ply', use_buffer=False, buffer_gaussian=None):
     logger = args.logger
     logger.log_info(f"Decompressing next Gaussian Frame from {init_3dgs_path}")
     
@@ -236,7 +517,7 @@ def conduct_decompress(args, model_path, init_3dgs_path, y_hat_bit_path = 'motio
         myFCGS_D.cuda()
         scene = myFCGS_D.scene
 
-        rec_gaussians, duration = myFCGS_D.decompress(init_3dgs_path, y_hat_bit_path, z_hat_bit_path, mask_path, dynamicGS_type=args.dynamicGS_type, buffer_gaussian=buffer_gaussian)
+        rec_gaussians, duration = myFCGS_D.decompress(init_3dgs_path, y_hat_bit_path, z_hat_bit_path, mask_path, dynamicGS_type=args.dynamicGS_type, use_buffer=use_buffer, buffer_gaussian=buffer_gaussian)
         logger.add_to_list('decompress_time', duration)
         logger.log_info(f"Decompression time: {duration:.2f} seconds")
         # rec_gaussians.save_ply(save_ply_path)
@@ -308,16 +589,16 @@ def validate(gaussians, scene, args, save_path='', save_img=False, logger=None):
     logger.add_to_list('lpips', lpips_avg)
 
 def arg_parse():
-    parser = argparse.ArgumentParser(description='D-FCGS Official Implementation')
+    parser = argparse.ArgumentParser(description='FCGS_D')
     lp = ModelParams(parser)
     op = OptimizationParams(parser)
     pp = PipelineParams(parser)
 
-    parser.add_argument('--gpu', type=int, default=0, help='GPU ID to use')
+    parser.add_argument('--gpu', type=int, default=0)
 
     # hyper parameters
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
-    parser.add_argument('--lambda_size', type=float, default=1e-3, help='weight for rate loss')
+    parser.add_argument('--lambda_size', type=float, default=1e-3, help='scaler of z')
     parser.add_argument('--Q_y', type=float, default=1, help='granularity of quantization for latent code')
     parser.add_argument('--Q_z', type=float, default=1, help='granularity of quantization for hyper latent code')
     parser.add_argument('--gof_size', type=int, default=5, help='number of gaussian frames in a group')
@@ -342,11 +623,15 @@ def arg_parse():
     parser.add_argument('--conduct_training', action='store_true', help='conduct training')
     parser.add_argument('--conduct_compress', action='store_true', help='conduct compress')
     parser.add_argument('--conduct_decompress', action='store_true', help='conduct decompress')
-    parser.add_argument('--use_first_as_test', action='store_true', help='use first frame as test, the same as 3DGStream')
+    parser.add_argument('--use_first_as_test', action='store_true', help='use first frame as test, same as 3DGStream')
     parser.add_argument('--random_init', action='store_true', help='randomly initialize the I frame')
-    parser.add_argument('--without_refinement', action='store_true', help='ablation without refinement')
-    parser.add_argument('--without_context', action='store_true', help='ablation without context prior')
-    parser.add_argument('--without_hyper', action='store_true', help='ablation without hyperprior')
+    parser.add_argument('--without_refinement', action='store_true', help='without refinement')
+    parser.add_argument('--without_context', action='store_true', help='without contest prior')
+    parser.add_argument('--without_hyper', action='store_true', help='without hyperprioe')
+    parser.add_argument('--per_frame', action='store_true', help='train per frame')
+    parser.add_argument('--joint', action='store_true', help='train jointly')
+    parser.add_argument('--use_scenes', action='store_true', help='use scenes')
+    parser.add_argument('--use_gof', action='store_true', help='use group of frames')
     parser.add_argument('--add_position_noise', action='store_true', help='add position noise to the initial 3dgs')
 
     parser.add_argument('--frame_start', type=int, default=1, help='start frame for training')
@@ -385,3 +670,4 @@ if __name__ == "__main__":
     torch.cuda.set_device(args.gpu)
 
     main(args)
+        

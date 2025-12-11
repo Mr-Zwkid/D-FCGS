@@ -40,11 +40,12 @@ class="center">
    conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
    pip install torch==2.2.0+cu118 torchvision==0.17.0+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
    pip install pytorch3d==0.7.8+pt2.2.0cu118 --extra-index-url https://miropsota.github.io/torch_packages_builder 
-   pip install lpips tqdm plyfile commentjson
-   pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
-   pip install submodules/simple-knn
-   pip install submodules/diff-gaussian-rasterization
-   pip install submodules/arithmetic
+   pip install lpips tqdm plyfile commentjson opencv-python torchviz kornia numpy==1.26.4 matplotlib
+   conda install -c conda-forge colmap
+   pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch --no-build-isolation
+   pip install submodules/simple-knn --no-build-isolation 
+   pip install submodules/diff-gaussian-rasterization --no-build-isolation 
+   pip install submodules/arithmetic --no-build-isolation 
    ```
    
 ## 02 Dataset Preprocess

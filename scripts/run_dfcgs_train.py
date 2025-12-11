@@ -10,7 +10,7 @@ scene_list = ['04_Truck', '11_Alexa_Paint_2', 'b2']
 
 for lambda_size in lambda_size_list:
     model_path = f'./outputs/{date}-{lambda_size}-{exp_name}'
-    script = f"python train_dfcgs.py --gpu 0 --eval --dynamicGS_type control_point \
+    script = f"python train_fcgsd.py --gpu 0 --eval --dynamicGS_type control_point \
         --Q_y 1 --Q_z 1 --lr 1e-3 --lambda_size {lambda_size}  --motion_limit 2\
         --frame_start 0 --frame_end 99 --gof_size 5 --iterations 4000\
         --conduct_training  \

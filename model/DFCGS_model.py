@@ -580,9 +580,9 @@ class FCGS_D(nn.Module):
             'bits_total': (bits_motion + bits_prior_motion) / bit_to_MB,
         }, compression_time
 
-    def decompress(self, cur_gaussians_path, y_hat_bit_path, z_hat_bit_path, mask_bit_path, dynamicGS_type='3dgstream', buffer_gaussian=None):
+    def decompress(self, cur_gaussians_path, y_hat_bit_path, z_hat_bit_path, mask_bit_path, dynamicGS_type='3dgstream', use_buffer=False, buffer_gaussian=None):
 
-        cur_gaussians = buffer_gaussian if buffer_gaussian is not None else self.read_gaussian_file(cur_gaussians_path)
+        cur_gaussians = buffer_gaussian if use_buffer and buffer_gaussian is not None else self.read_gaussian_file(cur_gaussians_path)
 
         torch.cuda.synchronize()
         start_time = time.time()
