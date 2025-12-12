@@ -481,7 +481,7 @@ def conduct_compress_decompress_as_gof(args, frame_start, frame_end):
             buffer_gaussian = conduct_decompress(args, model_path, args.init_3dgs, motion_save_path, motion_prior_save_path, mask_save_path, ply_save_path)
         else:
             conduct_compress(args, model_path, args.init_3dgs, motion_save_path, motion_prior_save_path, mask_save_path, args.next_3dgs, use_buffer=True, buffer_gaussian=buffer_gaussian)
-            conduct_decompress(args, model_path, args.init_3dgs, motion_save_path, motion_prior_save_path, mask_save_path, ply_save_path, use_buffer=True)
+            buffer_gaussian = conduct_decompress(args, model_path, args.init_3dgs, motion_save_path, motion_prior_save_path, mask_save_path, ply_save_path, use_buffer=True)
     logger.save_general_info() 
 
 def conduct_compress(args, model_path, init_3dgs_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_path = 'mask.b', nxt_gaussians_path=None, use_buffer=False, buffer_gaussian=None):
