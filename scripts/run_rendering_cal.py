@@ -8,9 +8,9 @@ sys.path.append('.')
 import os
 from train_fcgsd import path_match
 
-dataset_path = './data_video'
+dataset_path = '/mnt/data3/ctx/D-FCGS_old/data'
 dataset = 'N3V'
-scene_list = ['flame_steak']
+scene_list = ['flame_steak', 'cut_roasted_beef']
 
 for scene in scene_list:
     for frame in range(0, 300):

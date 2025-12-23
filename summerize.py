@@ -34,6 +34,7 @@ def main():
 
         motion_size_list = []
         prior_size_list = []
+        motion_xyz_size_list = []
         total_size_list = []
         psnr_list = []
         ssim_list = []
@@ -51,11 +52,17 @@ def main():
             path_size = f'{base_dir_cur}/frame{frame:06d}/size.json'
             with open(path_size, 'r') as f:
                 size = json.load(f)
-                motion_size = size['bits_motion']
-                prior_size = size['bits_prior_motion']
-                total_size = motion_size + prior_size
+                motion_size = float(size['bits_motion'])
+                prior_size = float(size['bits_prior_motion'])
+                motion_xyz_size = size.get('motion_xyz_size_mb', None)
+                if motion_xyz_size is None:
+                    motion_xyz_size = float(size.get('bytes_motion_xyz_zst', 0)) / (1024 * 1024)
+                else:
+                    motion_xyz_size = float(motion_xyz_size)
+                total_size = float(size.get('bits_total', motion_size + prior_size + motion_xyz_size))
                 motion_size_list.append(motion_size)
                 prior_size_list.append(prior_size)
+                motion_xyz_size_list.append(motion_xyz_size)
                 total_size_list.append(total_size)
 
             path_psnr = f'{base_dir_cur}/frame{frame:06d}/rendering_info.json'
@@ -95,6 +102,7 @@ def main():
             'frame': frame_list,
             'motion_size': motion_size_list,
             'prior_size': prior_size_list,
+            'motion_xyz_size': motion_xyz_size_list,
             'total_size': total_size_list,
             'size_gt': size_gt_list,
             'psnr': psnr_list,

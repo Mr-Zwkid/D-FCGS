@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision
 import tinycudann as tcnn
 import copy
 from scene import GaussianModel, Scene, SimpleGaussianModel
@@ -17,6 +18,7 @@ from model.grid_utils import normalize_xyz, _grid_creater, _grid_encoder, FreqEn
 from pytorch3d.ops import sample_farthest_points, knn_points
 import matplotlib.pyplot as plt
 import time
+import os
 
 bit_to_MB = 8 * 1024 * 1024
 
@@ -80,6 +82,34 @@ def quaternion_multiply(a, b):
     z = w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2
 
     return torch.stack([w, x, y, z], dim=1)
+
+def quaternion_conjugate(q: torch.Tensor) -> torch.Tensor:
+    """Conjugate of quaternion(s) in [w, x, y, z] format."""
+    return torch.cat([q[:, :1], -q[:, 1:]], dim=1)
+
+def quaternion_inverse(q: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Inverse of quaternion(s) in [w, x, y, z] format."""
+    denom = (q * q).sum(dim=1, keepdim=True).clamp_min(eps)
+    return quaternion_conjugate(q) / denom
+
+def quaternion_identity_like(q: torch.Tensor) -> torch.Tensor:
+    """Return identity quaternion(s) matching batch/shape/device/dtype of q."""
+    out = torch.zeros_like(q)
+    out[:, 0] = 1
+    return out
+
+def quaternion_align_hemisphere(q_ref: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
+    """Resolve q / -q ambiguity by aligning q to have non-negative dot with q_ref."""
+    dot = (q_ref * q).sum(dim=1, keepdim=True)
+    return torch.where(dot < 0, -q, q)
+
+def quaternion_relative(q_from: torch.Tensor, q_to: torch.Tensor) -> torch.Tensor:
+    """Compute relative rotation q_delta such that q_to ≈ q_delta ⊗ q_from."""
+    q_from_n = F.normalize(q_from, dim=1)
+    q_to_n = F.normalize(q_to, dim=1)
+    q_to_n = quaternion_align_hemisphere(q_from_n, q_to_n)
+    q_delta = quaternion_multiply(q_to_n, quaternion_inverse(q_from_n))
+    return F.normalize(q_delta, dim=1)
 
 class FCGS_D(nn.Module):
     def __init__(self, args):
@@ -217,11 +247,11 @@ class FCGS_D(nn.Module):
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.BatchNorm1d(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
-            nn.Linear(self.hidden_dim, self.lat_dim),
+            nn.Linear(self.hidden_dim, self.lat_dim // 4),
         )
 
         self.MotionPriorDecoder = nn.Sequential(
-            nn.Linear(self.lat_dim, self.hidden_dim),
+            nn.Linear(self.lat_dim // 4, self.hidden_dim),
             nn.BatchNorm1d(self.hidden_dim),
             nn.LeakyReLU(inplace=True),
             nn.Linear(self.hidden_dim, self.hidden_dim),
@@ -255,7 +285,7 @@ class FCGS_D(nn.Module):
             nn.Linear(self.hidden_dim, 2 * self.lat_dim)
         )
 
-        self.EntropyFactorizedMotion = Entropy_factorized(self.lat_dim, Q=self.Q_z)
+        self.EntropyFactorizedMotion = Entropy_factorized(self.lat_dim // 4, Q=self.Q_z)
 
         self.EntropyGaussianMotion = Entropy_gaussian(Q=self.Q_y)
 
@@ -325,34 +355,43 @@ class FCGS_D(nn.Module):
         ssim_loss = ssim(rendered_img, gt_img)
         render_loss = (1.0 - self.args.lambda_dssim) * L1_loss + self.args.lambda_dssim * (1.0 - ssim_loss)
         
-        # train
-        viewpoint_stack = self.scene.getTrainCameras().copy()
-        len_viewpoint_stack = len(viewpoint_stack)
-        cur_psnr = 0
-        while len(viewpoint_stack) > 0:
-            viewpoint_camera = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
-            render_pkg = render(viewpoint_camera, gaussians, self.args, background)
-            rendered_img = render_pkg["render"]
-            gt_img = viewpoint_camera.original_image.cuda()
-            cur_psnr += psnr(rendered_img, gt_img).mean().double().item()
-        print(f"PSNR_train: {cur_psnr / len_viewpoint_stack:.2f} dB")
+        # # train
+        # viewpoint_stack = self.scene.getTrainCameras().copy()
+        # len_viewpoint_stack = len(viewpoint_stack)
+        # cur_psnr = 0
+        # while len(viewpoint_stack) > 0:
+        #     viewpoint_camera = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+        #     render_pkg = render(viewpoint_camera, gaussians, self.args, background)
+        #     # torchvision.utils.save_image(render_pkg["render"], os.path.join(f"tmp.png"))
+        #     rendered_img = render_pkg["render"]
+        #     gt_img = viewpoint_camera.original_image.cuda()
+        #     # show the image
+            
+        #     cur_psnr += psnr(rendered_img, gt_img).mean().double().item()
+        # print(f"PSNR_train: {cur_psnr / len_viewpoint_stack:.2f} dB")
 
-        # test
-        viewpoint_stack = self.scene.getTestCameras().copy()
-        len_viewpoint_stack = len(viewpoint_stack)
-        cur_psnr = 0
-        while len(viewpoint_stack) > 0:
-            viewpoint_camera = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
-            render_pkg = render(viewpoint_camera, gaussians, self.args, background)
-            rendered_img = render_pkg["render"]
-            gt_img = viewpoint_camera.original_image.cuda()
-            cur_psnr += psnr(rendered_img, gt_img).mean().double().item()
-        print(f"PSNR_test: {cur_psnr / len_viewpoint_stack:.2f} dB")
+        # PSNR_train = cur_psnr / len_viewpoint_stack
+
+        # # test
+        # viewpoint_stack = self.scene.getTestCameras().copy()
+        # len_viewpoint_stack = len(viewpoint_stack)
+        # cur_psnr = 0
+        # while len(viewpoint_stack) > 0:
+        #     viewpoint_camera = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+        #     render_pkg = render(viewpoint_camera, gaussians, self.args, background)
+        #     rendered_img = render_pkg["render"]
+        #     torchvision.utils.save_image(rendered_img, os.path.join(f"tmp_test.png"))
+        #     gt_img = viewpoint_camera.original_image.cuda()
+        #     break
+        #     cur_psnr += psnr(rendered_img, gt_img).mean().double().item()
+        # print(f"PSNR_test: {cur_psnr / len_viewpoint_stack:.2f} dB")
+
+        # PSNR_test = cur_psnr / len_viewpoint_stack
 
 
-        return render_loss
+        return render_loss, 0 , 0
         
-    def MotionEstimation(self, dynamicGS_type, cur_gaussians, nxt_gaussians=None):
+    def MotionEstimation(self, dynamicGS_type, cur_gaussians, nxt_gaussians=None, ctrl_point_idx=None):
         if dynamicGS_type == '3dgstream_explicit':
             cur_xyz = cur_gaussians._xyz
             nxt_xyz = nxt_gaussians._xyz
@@ -362,12 +401,11 @@ class FCGS_D(nn.Module):
 
             assert cur_xyz.shape[0] == nxt_xyz.shape[0], 'The number of points in the current and next frame should be the same'
             
-            # NOTE avoid the rotation flip
-            if abs(cur_rot.mean() + nxt_rot.mean()) < abs(cur_rot.mean()):
-                nxt_rot = -nxt_rot
-            
             d_xyz = nxt_xyz - cur_xyz
-            d_rot = nxt_rot - cur_rot
+
+            # Quaternion delta: q_next ≈ q_delta ⊗ q_cur
+            q_delta = quaternion_relative(cur_rot, nxt_rot)
+            d_rot = q_delta - quaternion_identity_like(q_delta)
 
             return torch.cat((d_xyz, d_rot), dim=1), None
         
@@ -384,9 +422,8 @@ class FCGS_D(nn.Module):
             cur_rot = cur_gaussians._rotation.detach()
             nxt_rot = nxt_gaussians._rotation.detach()
 
-            # NOTE avoid the rotation flip
-            if abs(cur_rot.mean() + nxt_rot.mean()) < abs(cur_rot.mean()):
-                nxt_rot = -nxt_rot
+            # NOTE avoid the rotation flip (align per-quaternion hemisphere)
+            nxt_rot = quaternion_align_hemisphere(F.normalize(cur_rot, dim=1), F.normalize(nxt_rot, dim=1))
 
             cur_rot = (cur_rot - cur_rot.mean(dim=0)[0]) / (cur_rot.max(dim=0)[0] - cur_rot.min(dim=0)[0] + 1e-6)
             nxt_rot = (nxt_rot - nxt_rot.mean(dim=0)[0]) / (nxt_rot.max(dim=0)[0] - nxt_rot.min(dim=0)[0] + 1e-6)
@@ -401,89 +438,116 @@ class FCGS_D(nn.Module):
         
         elif dynamicGS_type == 'control_point':
             
-            cur_xyz = cur_gaussians._xyz.detach()
-            nxt_xyz = nxt_gaussians._xyz.detach()
-            sample_num = min(cur_xyz.shape[0] // self.downsample_rate, nxt_xyz.shape[0] // self.downsample_rate) 
-            sample_num = min(sample_num, self.max_point_num) 
-            print(f'Sampling {sample_num} control points!')
+            # cur_xyz = cur_gaussians._xyz.detach()
+            # nxt_xyz = nxt_gaussians._xyz.detach()
+            # sample_num = min(cur_xyz.shape[0] // self.downsample_rate, nxt_xyz.shape[0] // self.downsample_rate) 
+            # sample_num = min(sample_num, self.max_point_num)
 
-            sampled_cur_xyz, idx_cur = sample_farthest_points(cur_xyz.unsqueeze(0), K=sample_num)
-            sampled_nxt_xyz, idx_nxt = sample_farthest_points(nxt_xyz.unsqueeze(0), K=sample_num)
+            # if ctrl_point_idx is None:
+            #     sampled_cur_xyz, idx_cur = sample_farthest_points(cur_xyz.unsqueeze(0), K=sample_num)
+            #     # sampled_nxt_xyz, idx_nxt = sample_farthest_points(nxt_xyz.unsqueeze(0), K=sample_num)
+            #     sampled_nxt_xyz = nxt_xyz[idx_cur]
+            # else:
+            #     idx_cur = ctrl_point_idx
+            #     sampled_cur_xyz = cur_xyz[idx_cur]
+            #     sampled_nxt_xyz = nxt_xyz[idx_cur]
 
-            sampled_cur_xyz = sampled_cur_xyz.squeeze(0)
-            sampled_nxt_xyz = sampled_nxt_xyz.squeeze(0)
+
+            # debug, use all points
+            # sampled_cur_xyz = cur_xyz
+            # sampled_nxt_xyz = nxt_xyz
+            # idx_cur = torch.arange(0, cur_xyz.shape[0], device=cur_xyz.device).unsqueeze(0)
+
+            # sampled_cur_xyz = sampled_cur_xyz.squeeze(0)
+            # sampled_nxt_xyz = sampled_nxt_xyz.squeeze(0)
 
             cur_rot = cur_gaussians._rotation.detach()
             nxt_rot = nxt_gaussians._rotation.detach()
+            idx_cur = torch.arange(0, cur_rot.shape[0], device=cur_rot.device).unsqueeze(0)
+
             
-            # NOTE avoid the rotation flip
-            cur_rot_mean = cur_rot[0].mean()
-            nxt_rot_mean = nxt_rot[0].mean()
+            # NOTE avoid the rotation flip (align per-quaternion hemisphere)
+            nxt_rot = quaternion_align_hemisphere(F.normalize(cur_rot, dim=1), F.normalize(nxt_rot, dim=1))
 
-            if torch.abs(cur_rot_mean + nxt_rot_mean) < torch.abs(cur_rot_mean):
-                nxt_rot.mul_(-1)
-
-            cur_rot = (cur_rot - cur_rot.mean(dim=0)[0]) / (cur_rot.max(dim=0)[0] - cur_rot.min(dim=0)[0] + 1e-6)
-            nxt_rot = (nxt_rot - nxt_rot.mean(dim=0)[0]) / (nxt_rot.max(dim=0)[0] - nxt_rot.min(dim=0)[0] + 1e-6)
+            # cur_rot = (cur_rot - cur_rot.mean(dim=0)[0]) / (cur_rot.max(dim=0)[0] - cur_rot.min(dim=0)[0] + 1e-6)
+            # nxt_rot = (nxt_rot - nxt_rot.mean(dim=0)[0]) / (nxt_rot.max(dim=0)[0] - nxt_rot.min(dim=0)[0] + 1e-6)
 
             sampled_cur_rot = cur_rot[idx_cur].squeeze(0)
-            sampled_nxt_rot = nxt_rot[idx_nxt].squeeze(0)
+            sampled_nxt_rot = nxt_rot[idx_cur].squeeze(0)
 
-            cur_xyz_trans = self.FramePositionExtractor(sampled_cur_xyz)
-            nxt_xyz_trans = self.FramePositionExtractor(sampled_nxt_xyz)
+            # cur_xyz_trans = self.FramePositionExtractor(sampled_cur_xyz)
+            # nxt_xyz_trans = self.FramePositionExtractor(sampled_nxt_xyz)
 
-            cur_rot_trans = self.FrameRotationExtractor(sampled_cur_rot)
-            nxt_rot_trans = self.FrameRotationExtractor(sampled_nxt_rot)
+            # cur_rot_trans = self.FrameRotationExtractor(sampled_cur_rot)
+            # nxt_rot_trans = self.FrameRotationExtractor(sampled_nxt_rot)
 
-            motion_xyz = (nxt_xyz_trans - cur_xyz_trans)
-            motion_rot = (nxt_rot_trans - cur_rot_trans)
-            # print('motion_xyz: ', motion_xyz)
-            # print('motion_rot: ', motion_rot)
+            # cur_xyz_trans = sampled_cur_xyz
+            # nxt_xyz_trans = sampled_nxt_xyz
 
-            motion = self.Combiner(torch.cat([motion_xyz, motion_rot], dim=1).to(torch.float32))
+            cur_rot_trans = sampled_cur_rot
+            nxt_rot_trans = sampled_nxt_rot
+
+            q_delta = quaternion_relative(cur_rot_trans, nxt_rot_trans)
+            motion_rot = q_delta - quaternion_identity_like(q_delta)
+
+            # print('max motion_xyz: ', torch.max(motion_xyz))
+            # print('max motion_rot: ', torch.max(motion_rot))
+
+            # motion = torch.cat([motion_xyz, motion_rot], dim=1)
+            # motion = self.Combiner(torch.cat([motion_xyz, motion_rot], dim=1).to(torch.float32))
             # print('motion: ', motion)
 
-            return motion, idx_cur
-    
+            return motion_rot, idx_cur
+        
     def MotionCompensation(self, dynamicGS_type, dec_motion, cur_gaussians, nxt_gaussians_=None, idx_cur = None):
         nxt_gaussians = SimpleGaussianModel(cur_gaussians)
 
         if dynamicGS_type == '3dgstream_explicit':
             nxt_gaussians._xyz = cur_gaussians._xyz.detach() + dec_motion[:, :3]
-            nxt_gaussians._rotation = cur_gaussians._rotation.detach() + dec_motion[:, 3:]
+            q_delta = dec_motion[:, 3:] + quaternion_identity_like(cur_gaussians._rotation.detach())
+            nxt_gaussians._rotation = quaternion_multiply(q_delta, cur_gaussians._rotation.detach())
 
         elif dynamicGS_type == '3dgstream_implicit':
             nxt_gaussians._xyz = cur_gaussians._xyz.detach() + dec_motion[:, :3]
-            nxt_gaussians._rotation = cur_gaussians._rotation.detach() + dec_motion[:, 3:]
+            q_delta = dec_motion[:, 3:] + quaternion_identity_like(cur_gaussians._rotation.detach())
+            nxt_gaussians._rotation = quaternion_multiply(q_delta, cur_gaussians._rotation.detach())
             
         elif dynamicGS_type == 'control_point':
-            cur_xyz = cur_gaussians._xyz.detach()
+            # cur_xyz = cur_gaussians._xyz.detach()
             cur_rot = cur_gaussians._rotation.detach()
 
-            query_xyz = cur_xyz[idx_cur]
-            knn_xyz = knn_points(query_xyz, cur_xyz.unsqueeze(0), K=self.knn_num)
-            dists = knn_xyz.dists.squeeze(0)
-            knn_idx = knn_xyz.idx.squeeze(0)
-            softmax_dists = F.softmax(-dists, dim=1).unsqueeze(-1)
+            # query_xyz = cur_xyz[idx_cur]
+            # knn_xyz = knn_points(query_xyz, cur_xyz.unsqueeze(0), K=self.knn_num)
+            # dists = knn_xyz.dists.squeeze(0)
+            # knn_idx = knn_xyz.idx.squeeze(0)
+            # softmax_dists = F.softmax(-dists, dim=1).unsqueeze(-1)
 
-            dec_motion = dec_motion.unsqueeze(1)
+            # dec_motion = dec_motion.unsqueeze(1)
 
-            dec_motion_expanded = dec_motion * softmax_dists
-            # plot_hist(dec_motion_expanded, title='dec_motion_expanded', bins=100, range=(-0.5, 0.5), save_path='./dec_motion_expanded.png')
+            # dec_motion_expanded = dec_motion * softmax_dists
+            # # plot_hist(dec_motion_expanded, title='dec_motion_expanded', bins=100, range=(-0.5, 0.5), save_path='./dec_motion_expanded.png')
 
 
-            # Parallel update for all knn_idx using scatter_add
-            nxt_gaussians._xyz = cur_xyz
-            nxt_gaussians._rotation = cur_rot
-            # knn_idx: [sample_num, knn_num], dec_motion_expanded: [sample_num, knn_num, motion_dim]
-            # Flatten indices and values for scatter_add
-            flat_idx = knn_idx.reshape(-1)  # [sample_num * knn_num]
-            xyz_update = dec_motion_expanded[:, :, :3].reshape(-1, 3)  # [sample_num * knn_num, 3]
-            rot_update = dec_motion_expanded[:, :, 3:].reshape(-1, 4)  # [sample_num * knn_num, 4]
-            # Use scatter_add to accumulate updates
-            nxt_gaussians._xyz = nxt_gaussians._xyz.scatter_add(0, flat_idx.unsqueeze(-1).expand(-1, 3), xyz_update)
-            nxt_gaussians._rotation = nxt_gaussians._rotation.scatter_add(0, flat_idx.unsqueeze(-1).expand(-1, 4), rot_update)
+            # # Parallel update for all knn_idx using scatter_add
+            # nxt_gaussians._xyz = cur_xyz
+            # nxt_gaussians._rotation = cur_rot
+            # # knn_idx: [sample_num, knn_num], dec_motion_expanded: [sample_num, knn_num, motion_dim]
+            # # Flatten indices and values for scatter_add
+            # flat_idx = knn_idx.reshape(-1)  # [sample_num * knn_num]
+            # xyz_update = dec_motion_expanded[:, :, :3].reshape(-1, 3)  # [sample_num * knn_num, 3]
+            # rot_update = dec_motion_expanded[:, :, 3:].reshape(-1, 4)  # [sample_num * knn_num, 4]
+            # # Use scatter_add to accumulate updates
+            # nxt_gaussians._xyz = nxt_gaussians._xyz.scatter_add(0, flat_idx.unsqueeze(-1).expand(-1, 3), xyz_update)
+            # nxt_gaussians._rotation = nxt_gaussians._rotation.scatter_add(0, flat_idx.unsqueeze(-1).expand(-1, 4), rot_update)
 
+            # nxt_gaussians._xyz = cur_xyz.clone()
+            nxt_gaussians._rotation = cur_rot.clone()
+            
+            idx_cur_squeezed = idx_cur.squeeze(0) if idx_cur.dim() > 1 else idx_cur
+            # nxt_gaussians._xyz[idx_cur_squeezed] += dec_motion[:, :3]
+            # nxt_gaussians._rotation[idx_cur_squeezed] += dec_motion[:, 3:]
+            q_delta = dec_motion + quaternion_identity_like(dec_motion)
+            nxt_gaussians._rotation[idx_cur_squeezed] = quaternion_multiply(q_delta, cur_rot[idx_cur_squeezed])
         return nxt_gaussians
 
     def Refinement(self, cur_gaussians, residual_position=None, residual_feature=None): 
@@ -532,6 +596,24 @@ class FCGS_D(nn.Module):
             gaussians.load_ply(file_path)
         return gaussians
 
+    def debug_control_point(self, dynamicGS_type='control_point', use_buffer = False, buffer_gaussian = None, cur_gaussians_path=None, nxt_gaussians_path=None, ctrl_point_idx=None):
+        cur_gaussians = self.read_gaussian_file(cur_gaussians_path) if not use_buffer else buffer_gaussian
+        nxt_gaussians = self.read_gaussian_file(nxt_gaussians_path)
+
+        origin_motion_xyz = nxt_gaussians._xyz - cur_gaussians._xyz
+        est_motion, idx_cur = self.MotionEstimation(dynamicGS_type, cur_gaussians, nxt_gaussians, ctrl_point_idx=ctrl_point_idx)
+
+        dec_motion = est_motion 
+        nxt_gaussians = self.MotionCompensation(dynamicGS_type, dec_motion, cur_gaussians, idx_cur=idx_cur)
+
+        reconstructed_motion_xyz = nxt_gaussians._xyz - cur_gaussians._xyz
+        reconstructed_motion_rot = nxt_gaussians._rotation - cur_gaussians._rotation
+        reconstructed_motion = torch.cat((reconstructed_motion_xyz, reconstructed_motion_rot), dim=1)
+
+        # loss_render, PSNR_train, PSNR_test = self.ComputeRenderLoss(nxt_gaussians)
+
+        return nxt_gaussians, idx_cur
+
     def compress(self, cur_gaussians_path, y_hat_bit_path = 'motion.b', z_hat_bit_path = 'motion_prior.b', mask_bit_path = 'mask.b', dynamicGS_type='3dgstream', nxt_gaussians_path=None, use_buffer = False, buffer_gaussian = None, add_position_noise=False):
         start_time = time.time()
         cur_gaussians = self.read_gaussian_file(cur_gaussians_path) if not use_buffer else buffer_gaussian
@@ -544,7 +626,11 @@ class FCGS_D(nn.Module):
             noise = torch.randn_like(cur_gaussians._xyz) * 0.5
             cur_gaussians._xyz += noise
 
+        origin_motion_xyz = nxt_gaussians._xyz - cur_gaussians._xyz
+        plot_hist(origin_motion_xyz, title='origin_motion_xyz', range=(-0.3, 0.3), bins=1000, save_path=y_hat_bit_path.replace('.b', '_origin_motion_xyz.png'))
+
         cur_xyz, cur_fea, N_gaussian = GaussianParameterPack(cur_gaussians)
+        print('N_gaussian:', N_gaussian)
 
         position_features = self.GridEncoder(cur_xyz)
         position_features = F.normalize(position_features, p=2, dim=1)
@@ -554,6 +640,7 @@ class FCGS_D(nn.Module):
         torch.cuda.synchronize()
         start_time = time.time()
         est_motion, idx_cur = self.MotionEstimation(dynamicGS_type, cur_gaussians, nxt_gaussians)
+        plot_hist(est_motion, title='est_motion', range=(-0.3, 0.3), bins=1000, save_path=y_hat_bit_path.replace('.b', '_est_motion.png'))
 
         y_motion = self.MotionEncoder(est_motion)
         y_hat_motion = self.quantize(y_motion, Q=self.Q_y, train_flag=False)
@@ -578,6 +665,7 @@ class FCGS_D(nn.Module):
             'bits_motion': bits_motion / bit_to_MB,
             'bits_prior_motion': bits_prior_motion / bit_to_MB,
             'bits_total': (bits_motion + bits_prior_motion) / bit_to_MB,
+            'origin_motion_xyz': origin_motion_xyz
         }, compression_time
 
     def decompress(self, cur_gaussians_path, y_hat_bit_path, z_hat_bit_path, mask_bit_path, dynamicGS_type='3dgstream', use_buffer=False, buffer_gaussian=None):
@@ -589,11 +677,14 @@ class FCGS_D(nn.Module):
         cur_xyz, cur_fea, N_gaussian = GaussianParameterPack(cur_gaussians)
 
         if dynamicGS_type == 'control_point':
-            sampled_num = min(N_gaussian // self.downsample_rate, self.max_point_num)
+            # sampled_num = min(N_gaussian // self.downsample_rate, self.max_point_num)
+            sampled_num = N_gaussian // self.downsample_rate
             sampled_cur_xyz, idx_cur = sample_farthest_points(cur_xyz.unsqueeze(0), K=sampled_num)
         else :
             sampled_num = N_gaussian
             idx_cur = None
+        
+        print('sampled_num:', sampled_num)
 
         position_features = self.GridEncoder(cur_xyz)
         position_features = F.normalize(position_features, p=2, dim=1)
@@ -604,7 +695,7 @@ class FCGS_D(nn.Module):
         ctx_params_motion = extracted_features
         ctx_params_motion = ctx_params_motion[idx_cur].squeeze(0) if idx_cur is not None else ctx_params_motion
 
-        z_hat_motion = decoder_factorized_chunk(self.EntropyFactorizedMotion._logits_cumulative, self.Q_z, sampled_num, self.lat_dim, z_hat_bit_path, chunk_size=10000)
+        z_hat_motion = decoder_factorized_chunk(self.EntropyFactorizedMotion._logits_cumulative, self.Q_z, sampled_num, self.lat_dim // 4, z_hat_bit_path, chunk_size=10000)
         params_motion = self.MotionPriorDecoder(z_hat_motion)
 
         distribution_motion = self.EntropyParametersMotion(torch.cat((ctx_params_motion, params_motion), dim=1))
@@ -618,9 +709,10 @@ class FCGS_D(nn.Module):
         nxt_gaussians = self.MotionCompensation(dynamicGS_type, dec_motion, cur_gaussians, idx_cur=idx_cur)
 
         # Refinement
-        residual_ctx_params = extracted_features
-        residual_feature = self.ResidualGenerator(residual_ctx_params)
-        nxt_gaussians = self.Refinement(nxt_gaussians, residual_feature=residual_feature)
+        # residual_ctx_params = extracted_features
+        # residual_feature = self.ResidualGenerator(residual_ctx_params)
+        # nxt_gaussians = self.Refinement(nxt_gaussians, residual_feature=residual_feature)
+
         torch.cuda.synchronize()
         decompression_time = time.time() - start_time
 
@@ -628,7 +720,7 @@ class FCGS_D(nn.Module):
         # print('dec_motion: ', dec_motion)
 
         motion_xyz = nxt_gaussians._xyz - cur_xyz
-        plot_hist(motion_xyz, title='motion_xyz', range=(-0.3, 0.3), bins=100, save_path=y_hat_bit_path.replace('.b', '_motion_xyz.png'))
+        # plot_hist(motion_xyz, title='motion_xyz', range=(-0.3, 0.3), bins=1000, save_path=y_hat_bit_path.replace('.b', '_motion_xyz.png'))
         # print('motion_xyz: ', motion_xyz)  
         # print('motion_xyz: ', motion_xyz.max(), motion_xyz.min())
         # print('motion_xyz: ', motion_xyz.mean(), motion_xyz.std())
@@ -649,29 +741,65 @@ class FCGS_D(nn.Module):
         ctx_params_motion = extracted_features # [N, latent_dim]
 
         # Sparse Motion Extration
+        # origin_motion_xyz = self.nxt_gaussians._xyz - self.cur_gaussians._xyz
+        # origin_motion_rot = self.nxt_gaussians._rotation - self.cur_gaussians._rotation
+        # origin_motion = torch.cat((origin_motion_xyz, origin_motion_rot), dim=1)
+
+        # plot_hist(origin_motion_xyz, title='origin_motion_xyz', range=(-0.3, 0.3), bins=1000, save_path='./origin_motion_xyz.png')
+        # plot_hist(origin_motion_rot, title='origin_motion_rot', range=(-0.3, 0.3), bins=1000, save_path='./origin_motion_rot.png')
+        # print('max of origin motion xyz:', origin_motion_xyz.abs().max().item())
+        # print('max of origin motion rot:', origin_motion_rot.abs().max().item())
+
         est_motion, idx_cur = self.MotionEstimation(self.args.dynamicGS_type, self.cur_gaussians, self.nxt_gaussians) # est_motion: [N_c, motion_dim]
+
+        plot_hist(est_motion, title='est_motion', range=(-0.3, 0.3), bins=1000, save_path='./est_motion.png')
+        nxt_xyz = self.nxt_gaussians._xyz
+        motion_position = self.nxt_gaussians._xyz - self.cur_gaussians._xyz
 
         # Motion Encoding
         y_motion = self.MotionEncoder(est_motion) # [N_c, motion_dim]
         y_hat_motion = self.quantize(y_motion, Q=self.Q_y, train_flag=True)
 
         # Hyper Prior
-        z_motion = self.MotionPriorEncoder(y_motion) # [N_c, latent_dim]
+        z_motion = self.MotionPriorEncoder(y_motion) # [N_c, latent_dim // 4]
         z_hat_motion = self.quantize(z_motion, Q=self.Q_z, train_flag=True)
         params_motion = self.MotionPriorDecoder(z_hat_motion) # [N_c, latent_dim]
 
         # Motion Decoding
         dec_motion = self.MotionDecoder(y_hat_motion) # [N_c, motion_dim]
 
+        # dec_motion = est_motion # debug
+
+        # print('max of estimated motion xyz:', torch.max(est_motion[:, :3]).item())
+        # print('max of estimated motion rot:', torch.max(est_motion[:, 3:]).item())
+
         # Motion Compensation
         nxt_gaussians = self.MotionCompensation(self.args.dynamicGS_type, dec_motion, self.cur_gaussians, idx_cur=idx_cur)
+
+        nxt_gaussians._xyz = cur_xyz + motion_position
+
+        # reconstructed_motion_xyz = nxt_gaussians._xyz - self.cur_gaussians._xyz
+        reconstructed_motion_rot = nxt_gaussians._rotation - self.cur_gaussians._rotation
+        # reconstructed_motion = torch.cat((reconstructed_motion_xyz, reconstructed_motion_rot), dim=1)
+
+        # plot_hist(reconstructed_motion_xyz, title='reconstructed_motion_xyz', range=(-0.3, 0.3), bins=1000, save_path='./reconstructed_motion_xyz.png')
+        # plot_hist(reconstructed_motion_rot, title='reconstructed_motion_rot', range=(-10, 10), bins=1000, save_path='./reconstructed_motion_rot.png')
+
+        # print('max of reconstructed motion xyz:', torch.max(reconstructed_motion_xyz).item())
+        # print('max of reconstructed motion rot:', torch.max(reconstructed_motion_rot).item())
+        # print('mean of reconstructed motion xyz:', torch.mean(torch.abs(reconstructed_motion_xyz)).item())
+        # print('mean of reconstructed motion rot:', torch.mean(torch.abs(reconstructed_motion_rot)).item())
+
+        # print('max motion xyz error:', torch.max((origin_motion_xyz - reconstructed_motion_xyz)).item())
+        # print('max motion rot error:', torch.max((origin_motion_rot - reconstructed_motion_rot)).item())
+
+        # # Refinement
+        # residual_ctx_params = extracted_features
+        # residual_feature = self.ResidualGenerator(residual_ctx_params)
+        # nxt_gaussians = self.Refinement(nxt_gaussians, residual_feature=residual_feature)
+
         with torch.no_grad():
             self.buffer = nxt_gaussians
-
-        # Refinement
-        residual_ctx_params = extracted_features
-        residual_feature = self.ResidualGenerator(residual_ctx_params)
-        nxt_gaussians = self.Refinement(nxt_gaussians, residual_feature=residual_feature)
 
         # Rate Estimation
         ctx_params_motion = ctx_params_motion[idx_cur].squeeze(0) if idx_cur is not None else ctx_params_motion
@@ -683,12 +811,22 @@ class FCGS_D(nn.Module):
 
         bits_motion = self.EntropyGaussianMotion(y_hat_motion, mean_motion, std_motion, self.Q_y)
         bits_prior_motion = self.EntropyFactorizedMotion(z_hat_motion)
-        total_size = bits_motion.mean() + bits_prior_motion.mean()  
+        total_size = (bits_motion.sum() + bits_prior_motion.sum()) / bit_to_MB
+
+        # print('shape of y_hat_motion:', y_hat_motion.shape)
+        # print('shape of z_hat_motion:', z_hat_motion.shape)
+        # print('bits_motion:', bits_motion.shape, bits_motion.sum().item() / bit_to_MB)
+        # print('bits_prior_motion:', bits_prior_motion.shape, bits_prior_motion.sum().item() / bit_to_MB)
 
         # Render Loss
-        loss_render = self.ComputeRenderLoss(nxt_gaussians)
+        loss_render, PSNR_train, PSNR_test = self.ComputeRenderLoss(nxt_gaussians)
+        # print('Render Loss: ', loss_render.item())
 
-        return loss_render, total_size
+        loss_motion = torch.nn.functional.mse_loss(est_motion, reconstructed_motion_rot)
+        print('Motion MSE Loss: ', loss_motion.item())
+
+        # return loss_render, total_size
+        return loss_render, total_size, loss_motion, PSNR_train, PSNR_test
     
     def test(self):
         for i in range(len(self.scene.getTestCameras().copy())):
