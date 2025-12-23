@@ -1,9 +1,11 @@
 # [AAAI-26] D-FCGS
-Official Pytorch Implementation of **D-FCGS: Feedforward Compression of Dynamic Gaussian Splatting for Free-Viewpoint Videos**.
+Pytorch Implementation of **D-FCGS: Feedforward Compression of Dynamic Gaussian Splatting for Free-Viewpoint Videos**.
 
 [Wenkang Zhang](https://mr-zwkid.github.io/), [Yan Zhao](https://github.com/adminasmi), [Qiang Wang](https://scholar.google.com/citations?user=17E9fdUAAAAJ&hl=en), [Zhixin Xu](https://icci.sjtu.edu.cn/en/faculty/view/99), [Li Song](https://medialab.sjtu.edu.cn/author/li-song/),  [Zhengxue Cheng*](https://medialab.sjtu.edu.cn/author/zhengxue-cheng/)
 
 [![arXiv](https://img.shields.io/badge/Arxiv-2507.05859-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2507.05859) [![Code](https://img.shields.io/badge/Github-Code-blue.svg?logo=github)](https://github.com/Mr-Zwkid/FCGS-D) 
+
+> Update: we reimplement the motion compression network with least features and add I frame compression.
 
 <p align="center">
 <img src="assets/teaser.png" width=60%
